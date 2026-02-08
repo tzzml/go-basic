@@ -1,0 +1,15 @@
+10 REM 扩展性能测试
+20 REM 测试 1,000,000 次 SIN 计算
+30
+40 PRINT "开始性能测试..."
+50 PRINT "测试内容: 1,000,000 次 SIN 计算"
+60 PRINT
+70
+80 SUM = 0
+90 FOR I = 1 TO 1000000
+100   SUM = SUM + SIN(I)
+110 NEXT I
+120
+130 PRINT "测试完成!"
+140 PRINT "累加结果: "; SUM
+150 END

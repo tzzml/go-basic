@@ -80,11 +80,13 @@ type Interpreter struct {
 
 // ForFrame 表示 FOR 循环的栈帧
 // 用于存储循环状态，支持嵌套循环
+// 优化：缓存循环变量值，减少 map 查找
 type ForFrame struct {
 	varName   string  // 循环变量名
 	endValue  float64 // 循环结束值
 	stepValue float64 // 循环步长
 	lineIdx   int     // NEXT 后要返回到的行索引
+	value     float64 // 循环变量当前值（缓存）
 }
 
 // NewInterpreter 创建一个新的 BASIC 解释器实例
@@ -213,12 +215,13 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 		normalizedName := i.normalizeName(n.Var)
 		i.variables[normalizedName] = NumberValue(startVal)
 
-		// 将循环帧压入栈中（使用大写的变量名）
+		// 将循环帧压入栈中，缓存循环变量值
 		i.forStack = append(i.forStack, &ForFrame{
 			varName:   normalizedName,
 			endValue:  endVal,
 			stepValue: stepVal,
 			lineIdx:   i.currentLine,
+			value:     startVal, // 缓存初始值
 		})
 		return false
 
@@ -230,9 +233,9 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 		}
 
 		frame := i.forStack[len(i.forStack)-1]
-		currentVal := i.variables[frame.varName].AsNumber()
-		newVal := currentVal + frame.stepValue
-		i.variables[frame.varName] = NumberValue(newVal)
+
+		// 优化：直接使用缓存的值，避免 map 查找
+		newVal := frame.value + frame.stepValue
 
 		// 检查是否应该继续循环
 		shouldContinue := false
@@ -245,10 +248,16 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 		}
 
 		if shouldContinue {
+			// 更新缓存的值
+			frame.value = newVal
+			// 同步到 map，以便循环体内可以访问新值
+			i.variables[frame.varName] = NumberValue(newVal)
 			// 跳转回 FOR 语句的下一行
 			i.currentLine = frame.lineIdx
 		} else {
 			// 循环结束，弹出循环帧
+			// 将最终值写回 map（保持一致性）
+			i.variables[frame.varName] = NumberValue(newVal)
 			i.forStack = i.forStack[:len(i.forStack)-1]
 		}
 		return false
