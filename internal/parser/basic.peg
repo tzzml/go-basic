@@ -339,7 +339,16 @@ ExpressionList <- First:Expression Rest:(',' [ ]* Expression)* {
 	if Rest != nil {
 		for _, v := range Rest.([]interface{}) {
 			pair := v.([]interface{})
-			values = append(values, pair[1].(ast.Node))
+			// pair 结构：[',', [ ]*, Expression]
+			// 如果没有空格：pair 长度为 2，Expression 在 pair[1]
+			// 如果有空格：pair 长度为 3，Expression 在 pair[2]
+			var expr ast.Node
+			if len(pair) == 2 {
+				expr = pair[1].(ast.Node)
+			} else if len(pair) >= 3 {
+				expr = pair[2].(ast.Node)
+			}
+			values = append(values, expr)
 		}
 	}
 	return values, nil

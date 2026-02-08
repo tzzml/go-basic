@@ -8,6 +8,7 @@ import (
 
 // builtinFunctions 是内置函数名称的集合
 var builtinFunctions = map[string]bool{
+	// 数学函数
 	"ABS":  true,
 	"SIN":  true,
 	"COS":  true,
@@ -17,6 +18,17 @@ var builtinFunctions = map[string]bool{
 	"LOG":  true,
 	"EXP":  true,
 	"RND":  true,
+	// 字符串函数
+	"LEN":     true,
+	"LEFT$":   true,
+	"RIGHT$":  true,
+	"MID$":    true,
+	"INSTR":   true,
+	"UCASE$":  true,
+	"LCASE$":  true,
+	"SPACE$":  true,
+	"CHR$":    true,
+	"ASC":     true,
 }
 
 // isBuiltinFunction 检查标识符是否是内置函数

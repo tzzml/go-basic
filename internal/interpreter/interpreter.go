@@ -403,11 +403,23 @@ func (i *Interpreter) evaluateExpr(node ast.Node) Value {
 
 	case *ast.BinaryOp:
 		// 二元算术运算：+, -, *, /, ^, MOD
-		left := i.evaluateExpr(n.Left).AsNumber()
-		right := i.evaluateExpr(n.Right).AsNumber()
+		leftVal := i.evaluateExpr(n.Left)
+		rightVal := i.evaluateExpr(n.Right)
+
+		// 处理字符串连接运算符 (+)
+		if n.Op == "+" {
+			// 如果任一操作数是字符串，则进行字符串连接
+			if leftVal.isString || rightVal.isString {
+				return StringValue(leftVal.String() + rightVal.String())
+			}
+			// 否则进行数字加法
+			return NumberValue(leftVal.AsNumber() + rightVal.AsNumber())
+		}
+
+		// 其他运算只支持数字
+		left := leftVal.AsNumber()
+		right := rightVal.AsNumber()
 		switch n.Op {
-		case "+":
-			return NumberValue(left + right)
 		case "-":
 			return NumberValue(left - right)
 		case "*":
@@ -427,24 +439,50 @@ func (i *Interpreter) evaluateExpr(node ast.Node) Value {
 
 	case *ast.ComparisonOp:
 		// 比较运算：=, <>, >, <, >=, <=
-		left := i.evaluateExpr(n.Left).AsNumber()
-		right := i.evaluateExpr(n.Right).AsNumber()
+		leftVal := i.evaluateExpr(n.Left)
+		rightVal := i.evaluateExpr(n.Right)
 		var result bool
-		switch n.Op {
-		case "=":
-			result = left == right
-		case "<>":
-			result = left != right
-		case ">":
-			result = left > right
-		case "<":
-			result = left < right
-		case ">=":
-			result = left >= right
-		case "<=":
-			result = left <= right
-		default:
-			result = false
+
+		// 如果任一操作数是字符串，则进行字符串比较
+		if leftVal.isString || rightVal.isString {
+			leftStr := leftVal.String()
+			rightStr := rightVal.String()
+			switch n.Op {
+			case "=":
+				result = leftStr == rightStr
+			case "<>":
+				result = leftStr != rightStr
+			case ">":
+				result = leftStr > rightStr
+			case "<":
+				result = leftStr < rightStr
+			case ">=":
+				result = leftStr >= rightStr
+			case "<=":
+				result = leftStr <= rightStr
+			default:
+				result = false
+			}
+		} else {
+			// 数字比较
+			left := leftVal.AsNumber()
+			right := rightVal.AsNumber()
+			switch n.Op {
+			case "=":
+				result = left == right
+			case "<>":
+				result = left != right
+			case ">":
+				result = left > right
+			case "<":
+				result = left < right
+			case ">=":
+				result = left >= right
+			case "<=":
+				result = left <= right
+			default:
+				result = false
+			}
 		}
 		// BASIC 中布尔值用数字表示：真=1，假=0
 		if result {
@@ -495,10 +533,168 @@ func (i *Interpreter) evaluateExpr(node ast.Node) Value {
 
 // evaluateFunctionCall 计算函数调用的值
 // 支持内置数学函数：ABS, SIN, COS, TAN, INT, RND, SQR, LOG, EXP
+// 支持内置字符串函数：LEN, LEFT$, RIGHT$, MID$, INSTR, UCASE$, LCASE$
 func (i *Interpreter) evaluateFunctionCall(node *ast.FunctionCall) Value {
 	// 使用大写的函数名，使函数名不区分大小写
 	normalizedName := i.normalizeName(node.Name)
 	switch normalizedName {
+	// 字符串函数
+	case "LEN":
+		// 返回字符串长度
+		if len(node.Args) != 1 {
+			fmt.Printf("Error: LEN requires 1 argument, got %d\n", len(node.Args))
+			return NumberValue(0)
+		}
+		value := i.evaluateExpr(node.Args[0])
+		return NumberValue(float64(len(value.String())))
+
+	case "LEFT$":
+		// 返回字符串左边 n 个字符
+		if len(node.Args) != 2 {
+			fmt.Printf("Error: LEFT$ requires 2 arguments, got %d\n", len(node.Args))
+			return StringValue("")
+		}
+		str := i.evaluateExpr(node.Args[0]).String()
+		n := int(i.evaluateExpr(node.Args[1]).AsNumber())
+		if n > len(str) {
+			n = len(str)
+		}
+		if n < 0 {
+			n = 0
+		}
+		return StringValue(str[:n])
+
+	case "RIGHT$":
+		// 返回字符串右边 n 个字符
+		if len(node.Args) != 2 {
+			fmt.Printf("Error: RIGHT$ requires 2 arguments, got %d\n", len(node.Args))
+			return StringValue("")
+		}
+		str := i.evaluateExpr(node.Args[0]).String()
+		n := int(i.evaluateExpr(node.Args[1]).AsNumber())
+		if n > len(str) {
+			n = len(str)
+		}
+		if n < 0 {
+			n = 0
+		}
+		return StringValue(str[len(str)-n:])
+
+	case "MID$":
+		// 返回字符串从位置 start 开始的 n 个字符
+		// MID$(str, start[, n])
+		if len(node.Args) < 2 || len(node.Args) > 3 {
+			fmt.Printf("Error: MID$ requires 2 or 3 arguments, got %d\n", len(node.Args))
+			return StringValue("")
+		}
+		str := i.evaluateExpr(node.Args[0]).String()
+		start := int(i.evaluateExpr(node.Args[1]).AsNumber())
+		// BASIC 中字符串位置从 1 开始
+		if start < 1 {
+			start = 1
+		}
+		// 计算长度参数
+		n := len(str) - start + 1 // 默认到字符串末尾
+		if len(node.Args) == 3 {
+			n = int(i.evaluateExpr(node.Args[2]).AsNumber())
+		}
+		// 转换为 0-based 索引
+		startIdx := start - 1
+		endIdx := startIdx + n
+		if endIdx > len(str) {
+			endIdx = len(str)
+		}
+		if startIdx >= len(str) || startIdx < 0 {
+			return StringValue("")
+		}
+		return StringValue(str[startIdx:endIdx])
+
+	case "INSTR":
+		// 返回子串在字符串中的位置
+		// INSTR([start,] str, substr)
+		if len(node.Args) < 2 || len(node.Args) > 3 {
+			fmt.Printf("Error: INSTR requires 2 or 3 arguments, got %d\n", len(node.Args))
+			return NumberValue(0)
+		}
+		var start int = 1
+		var str, substr string
+		if len(node.Args) == 2 {
+			// INSTR(str, substr)
+			str = i.evaluateExpr(node.Args[0]).String()
+			substr = i.evaluateExpr(node.Args[1]).String()
+		} else {
+			// INSTR(start, str, substr)
+			start = int(i.evaluateExpr(node.Args[0]).AsNumber())
+			str = i.evaluateExpr(node.Args[1]).String()
+			substr = i.evaluateExpr(node.Args[2]).String()
+		}
+		if start < 1 {
+			start = 1
+		}
+		// 转换为 0-based 索引
+		pos := strings.Index(str[start-1:], substr)
+		if pos == -1 {
+			return NumberValue(0) // 未找到返回 0
+		}
+		return NumberValue(float64(start + pos)) // 返回 1-based 位置
+
+	case "UCASE$":
+		// 将字符串转换为大写
+		if len(node.Args) != 1 {
+			fmt.Printf("Error: UCASE$ requires 1 argument, got %d\n", len(node.Args))
+			return StringValue("")
+		}
+		str := i.evaluateExpr(node.Args[0]).String()
+		return StringValue(strings.ToUpper(str))
+
+	case "LCASE$":
+		// 将字符串转换为小写
+		if len(node.Args) != 1 {
+			fmt.Printf("Error: LCASE$ requires 1 argument, got %d\n", len(node.Args))
+			return StringValue("")
+		}
+		str := i.evaluateExpr(node.Args[0]).String()
+		return StringValue(strings.ToLower(str))
+
+	case "SPACE$":
+		// 返回 n 个空格的字符串
+		if len(node.Args) != 1 {
+			fmt.Printf("Error: SPACE$ requires 1 argument, got %d\n", len(node.Args))
+			return StringValue("")
+		}
+		n := int(i.evaluateExpr(node.Args[0]).AsNumber())
+		if n < 0 {
+			n = 0
+		}
+		return StringValue(strings.Repeat(" ", n))
+
+	case "CHR$":
+		// 将 ASCII 码转换为字符
+		if len(node.Args) != 1 {
+			fmt.Printf("Error: CHR$ requires 1 argument, got %d\n", len(node.Args))
+			return StringValue("")
+		}
+		code := int(i.evaluateExpr(node.Args[0]).AsNumber())
+		if code < 0 || code > 255 {
+			fmt.Printf("Error: CHR$ argument must be between 0 and 255, got %d\n", code)
+			return StringValue("")
+		}
+		return StringValue(string(rune(code)))
+
+	case "ASC":
+		// 返回字符的 ASCII 码
+		if len(node.Args) != 1 {
+			fmt.Printf("Error: ASC requires 1 argument, got %d\n", len(node.Args))
+			return NumberValue(0)
+		}
+		str := i.evaluateExpr(node.Args[0]).String()
+		if len(str) == 0 {
+			fmt.Println("Error: ASC argument is an empty string")
+			return NumberValue(0)
+		}
+		return NumberValue(float64(str[0]))
+
+	// 数学函数
 	case "ABS":
 		// 绝对值
 		if len(node.Args) != 1 {
