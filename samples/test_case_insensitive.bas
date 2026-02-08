@@ -1,0 +1,24 @@
+10 REM 测试大小写不敏感（名称缓存）
+20
+30 REM 测试变量名
+40 LET MyVariable = 100
+50 LET myvariable = MYVARIABLE + 50
+60 LET MYVARIABLE = MYVARIABLE + myvariable
+70 PRINT "MYVARIABLE = "; MYVARIABLE
+80 PRINT
+90
+100 REM 测试函数名
+110 PRINT "sin(0) ="; SIN(0)
+120 PRINT "Sin(0) ="; Sin(0)
+130 PRINT "SIN(0) ="; SIN(0)
+140 PRINT
+150
+160 REM 测试混合大小写
+170 LET TestVar = 10
+180 testvar = TESTVAR + 20
+190 TESTVAR = TESTVAR + testvar
+200 PRINT "TESTVAR = "; TESTVAR
+210 PRINT
+220
+230 PRINT "所有大小写测试通过！"
+240 END

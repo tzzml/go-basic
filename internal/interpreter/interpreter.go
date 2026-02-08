@@ -76,6 +76,7 @@ type Interpreter struct {
 	lineMap     map[int]int             // 行号 -> 程序行索引的映射表
 	returnStack []int                   // GOSUB 返回地址栈
 	forStack    []*ForFrame             // FOR 循环栈
+	nameCache   map[string]string       // 名称规范化缓存（优化）
 }
 
 // ForFrame 表示 FOR 循环的栈帧
@@ -95,14 +96,22 @@ func NewInterpreter() *Interpreter {
 		variables: make(map[string]Value),
 		arrays:    make(map[string][]float64),
 		lineMap:   make(map[int]int),
+		nameCache: make(map[string]string), // 优化：初始化名称缓存
 	}
 }
 
 // normalizeName 将名称转换为大写，用于统一变量名和函数名
 // BASIC 传统上是不区分大小写的
+// 优化：使用缓存避免重复的 strings.ToUpper 调用
 func (i *Interpreter) normalizeName(name string) string {
-	// 转换为大写
-	return strings.ToUpper(name)
+	// 尝试从缓存获取
+	if cached, ok := i.nameCache[name]; ok {
+		return cached
+	}
+	// 转换为大写并存入缓存
+	normalized := strings.ToUpper(name)
+	i.nameCache[name] = normalized
+	return normalized
 }
 
 // LoadProgram 加载 BASIC 程序到解释器
