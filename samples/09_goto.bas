@@ -1,0 +1,23 @@
+10 REM GOTO 无条件跳转示例
+20 REM 演示 GOTO 语句的使用
+30 PRINT "开始程序"
+40 PRINT
+50 GOTO 100
+60 PRINT "这行不会执行"
+70 PRINT "跳过了这一段"
+80 GOTO 150
+90 PRINT "这也不会执行"
+100 PRINT "跳转到这里！"
+110 PRINT
+120 REM 无限循环示例（需要手动终止）
+130 REM PRINT "进入循环..."
+140 REM GOTO 130
+150
+160 REM 跳过代码段
+170 PRINT "第一部分"
+180 GOTO 210
+190 PRINT "第二部分（跳过）"
+200 GOTO 230
+210 PRINT "第三部分"
+220 PRINT
+230 END

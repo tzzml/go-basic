@@ -1,0 +1,27 @@
+10 REM FOR...NEXT 循环示例
+20 REM 演示循环结构
+30 PRINT "正步长循环 (1 TO 5):"
+40 FOR I = 1 TO 5
+50 PRINT "  I ="; I
+60 NEXT I
+70 PRINT
+80 PRINT "自定义步长循环 (1 TO 10 STEP 2):"
+90 FOR I = 1 TO 10 STEP 2
+100 PRINT "  I ="; I
+110 NEXT I
+120 PRINT
+130 REM 倒序循环
+140 PRINT "倒序循环 (10 TO 1 STEP -1):"
+150 FOR I = 10 TO 1 STEP -1
+160 PRINT "  I ="; I
+170 NEXT I
+180 PRINT
+190 REM 嵌套循环 (直角三角形乘法表)
+200 PRINT "嵌套循环 (直角三角形乘法表):"
+210 FOR I = 1 TO 9
+220   FOR J = 1 TO I
+230     PRINT I; "*"; J; "="; I * J; " ";
+240   NEXT J
+250   PRINT
+260 NEXT I
+270 END

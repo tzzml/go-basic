@@ -1,0 +1,24 @@
+10 REM DIM 数组声明和访问示例
+20 PRINT
+30 PRINT "=== BASIC 数组示例 ==="
+40 PRINT
+50
+60 REM 基本数组操作
+70 PRINT "1. 基本数组操作"
+80 PRINT
+90 DIM A(5)
+100 PRINT "声明数组 A(5)"
+110 PRINT
+120 REM 数组赋值
+130 A(0) = 10
+140 A(1) = 20
+150 A(2) = 30
+160 A(3) = 40
+170 A(4) = 50
+180 PRINT "数组元素赋值:"
+190 FOR I = 0 TO 4
+200   PRINT "A("; I; ") = "; A(I)
+210 NEXT I
+220 PRINT
+230 PRINT
+240 END

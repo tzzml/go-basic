@@ -1,0 +1,27 @@
+10 REM GOSUB 子程序调用示例
+20 REM 演示 GOSUB 和 RETURN 语句的使用
+30 PRINT "主程序开始"
+40 PRINT
+50 GOSUB 200
+60 PRINT "返回主程序"
+70 PRINT
+80 GOSUB 300
+90 PRINT "再次返回主程序"
+100 PRINT
+110 GOSUB 400
+120 PRINT "程序结束"
+130 END
+140
+150 REM ===== 子程序 1 =====
+200 PRINT "执行子程序 1"
+210 RETURN
+220
+230 REM ===== 子程序 2 =====
+300 PRINT "执行子程序 2"
+310 RETURN
+320
+330 REM ===== 子程序 3 =====
+400 PRINT "执行子程序 3"
+410 PRINT "子程序可以有多行"
+420 RETURN
+430

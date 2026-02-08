@@ -1,0 +1,36 @@
+10 REM 性能基准测试
+20 REM 测试循环执行速度
+30
+40 PRINT "性能测试开始..."
+50 START = 1000
+60
+70 REM 简单循环测试
+80 FOR I = 1 TO 10000
+90   A = I + 1
+100 NEXT I
+110
+120 PRINT "循环 10000 次完成"
+130 PRINT "最终值: "; A
+140
+150 REM 嵌套循环测试
+160 SUM = 0
+170 FOR I = 1 TO 100
+180   FOR J = 1 TO 100
+190     SUM = SUM + 1
+200   NEXT J
+210 NEXT I
+220
+230 PRINT "嵌套循环 (100x100) 完成"
+240 PRINT "总和: "; SUM
+250
+300 REM 数学运算测试
+310 RESULT = 0
+320 FOR I = 1 TO 1000
+330   RESULT = RESULT + SIN(I) * COS(I)
+340 NEXT I
+350
+360 PRINT "数学运算测试 (1000次 SIN/COS) 完成"
+370 PRINT "结果: "; RESULT
+380
+400 PRINT "所有测试完成!"
+410 END

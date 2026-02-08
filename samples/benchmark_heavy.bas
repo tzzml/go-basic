@@ -1,0 +1,51 @@
+10 REM 重度性能基准测试
+20 REM 测试更大量的计算
+30
+40 PRINT "重度性能测试开始..."
+50 PRINT
+60
+70 REM 测试1: 大量循环 (100,000次)
+80 PRINT "测试1: 循环 100,000 次..."
+90 A = 0
+100 FOR I = 1 TO 100000
+110   A = A + 1
+120 NEXT I
+130 PRINT "完成: A = "; A
+140 PRINT
+150
+160 REM 测试2: 大量数学运算 (10,000次)
+170 PRINT "测试2: 数学运算 10,000 次..."
+180 B = 0
+190 FOR I = 1 TO 10000
+200   B = B + SIN(I) + COS(I) + SQR(I)
+210 NEXT I
+220 PRINT "完成: B = "; B
+230 PRINT
+240
+250 REM 测试3: 嵌套循环 (100x100)
+260 PRINT "测试3: 嵌套循环 (100x100)..."
+270 C = 0
+280 FOR I = 1 TO 100
+290   FOR J = 1 TO 100
+300     C = C + I * J
+310   NEXT J
+320 NEXT I
+330 PRINT "完成: C = "; C
+340 PRINT
+350
+360 REM 测试4: 数组访问 (10,000次)
+370 PRINT "测试4: 数组访问 10,000 次..."
+380 DIM ARR(100)
+390 FOR I = 0 TO 99
+400   ARR(I) = I
+410 NEXT I
+420 D = 0
+430 FOR I = 1 TO 10000
+440   IDX = I MOD 100
+450   D = D + ARR(IDX)
+460 NEXT I
+470 PRINT "完成: D = "; D
+480 PRINT
+490
+500 PRINT "所有测试完成!"
+510 END

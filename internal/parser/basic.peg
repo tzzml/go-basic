@@ -1,0 +1,399 @@
+// ============================================================
+// BASIC 语言语法定义 (PEG) - 用于 pigeon 解析器生成器
+// ============================================================
+
+{
+	package parser
+
+	import "zork-basic/internal/ast"
+}
+
+// ------------------------------------------------------------
+// 程序结构
+// ------------------------------------------------------------
+
+Program <- Lines:Line* EOF {
+	return &ast.Program{Lines: toLineSliceFromAny(Lines)}, nil
+}
+
+Line <- LineNumber:LineNumber [ ]* Statements:StatementList? EndOfLine {
+	statements := []ast.Node{}
+	if Statements != nil {
+		statements = Statements.([]ast.Node)
+	}
+	return &ast.Line{
+		LineNumber: LineNumber.(int),
+		Statements: statements,
+	}, nil
+}
+
+StatementList <- First:Statement Rest:(':' [ ]* Statement)* {
+	values := []ast.Node{First.(ast.Node)}
+	if Rest != nil {
+		for _, v := range Rest.([]interface{}) {
+			seq := v.([]interface{})
+			// seq[0] = ':', seq[1] = [ ]*, seq[2] = Statement
+			values = append(values, seq[2].(ast.Node))
+		}
+	}
+	return values, nil
+}
+
+LineNumber <- [0-9]+ {
+	n, _ := strconv.Atoi(string(c.text))
+	return n, nil
+}
+
+EndOfLine <- [ \t]* '\n'
+
+EOF <- !.
+
+// ------------------------------------------------------------
+// 语句
+// ------------------------------------------------------------
+
+Statement <- SingleQuoteCommentStmt / RemStmt / PrintStmt / IfStmt / ForStmt / NextStmt / GotoStmt / GosubStmt / ReturnStmt / EndStmt / DimStmt / InputStmt / Assignment
+
+// NonIfStatement 表示任何非 IF 的语句
+// 用于单行 IF 语句的 THEN 和 ELSE 部分，避免递归匹配
+NonIfStatement <- RemStmt / NonEmptyPrintStmt / ForStmt / NextStmt / GotoStmt / GosubStmt / ReturnStmt / EndStmt / DimStmt / InputStmt / Assignment
+
+// NonEmptyPrintStmt 表示必须有参数的 PRINT 语句
+// 用于单行 IF 语句中，确保解析器不会只匹配 "PRINT" 而留下参数
+NonEmptyPrintStmt <- "PRINT" [ ]+ Args:PrintArgList {
+	result := Args.([]interface{})
+	values := result[0].([]ast.Node)
+	separators := []string{}
+	if len(result) > 1 {
+		separators = result[1].([]string)
+	}
+	return &ast.PrintStmt{Values: values, Separators: separators}, nil
+}
+
+// ------------------------------------------------------------
+// 赋值语句
+// ------------------------------------------------------------
+
+Assignment <- "LET" [ ]+ Target:Primary [ ]* '=' [ ]* Value:Expression {
+	return &ast.Assignment{Target: Target.(ast.Node), Value: Value.(ast.Node)}, nil
+}
+            / Target:Primary [ ]* '=' [ ]* Value:Expression {
+	return &ast.Assignment{Target: Target.(ast.Node), Value: Value.(ast.Node)}, nil
+}
+
+// ------------------------------------------------------------
+// PRINT 输出语句
+// ------------------------------------------------------------
+
+PrintStmt <- "PRINT" [ ]* Args:PrintArgList? Trailer:(',' / ';')? {
+	values := []ast.Node{}
+	separators := []string{}
+	if Args != nil {
+		result := Args.([]interface{})
+		values = result[0].([]ast.Node)
+		if len(result) > 1 {
+			separators = result[1].([]string)
+		}
+	}
+	trailer := ""
+	if Trailer != nil {
+		trailer = string(Trailer.([]uint8))
+	}
+	return &ast.PrintStmt{Values: values, Separators: separators, Trailer: trailer}, nil
+}
+
+PrintArgList <- First:PrintArg Rest:((',' / ';') [ ]* PrintArg)* {
+	values := []ast.Node{First.(ast.Node)}
+	separators := []string{}
+	if Rest != nil {
+		for _, v := range Rest.([]interface{}) {
+			seq := v.([]interface{})
+			// seq[0] 是分隔符，seq[2] 是 PrintArg
+			sep := string(seq[0].([]uint8))
+			separators = append(separators, sep)
+			values = append(values, seq[2].(ast.Node))
+		}
+	}
+	return []interface{}{values, separators}, nil
+}
+
+PrintArg <- Expression
+          / StringLiteral
+
+// ------------------------------------------------------------
+// IF...THEN...ELSE...END IF 条件语句
+// ------------------------------------------------------------
+
+IfStmt <- "IF" [ \t\r\n]+ Condition:Expression [ \t\r\n]+ "THEN" [ \t\r\n]+ "END" [ \t\r\n]+ "IF" {
+		// 多行空 IF 语句
+		return &ast.IfStmt{
+			Condition: Condition.(ast.Node),
+			ThenStmts: []ast.Node{},
+			ElseStmts: []ast.Node{},
+		}, nil
+}
+        / "IF" [ \t\r\n]+ Condition:Expression [ \t\r\n]+ "THEN" [ \t\r\n]+ ThenStmts:Statement+ [ \t\r\n]+ "END" [ \t\r\n]+ "IF" {
+		// 多行 IF...END IF 语句（无 ELSE）
+		thenStmts := toNodeSliceFromAny(ThenStmts)
+		return &ast.IfStmt{
+			Condition: Condition.(ast.Node),
+			ThenStmts: thenStmts,
+			ElseStmts: []ast.Node{},
+		}, nil
+}
+        / "IF" [ \t\r\n]+ Condition:Expression [ \t\r\n]+ "THEN" [ \t\r\n]+ ThenStmts:Statement+ [ \t\r\n]+ "ELSE" [ \t\r\n]+ ElseStmts:Statement+ [ \t\r\n]+ "END" [ \t\r\n]+ "IF" {
+		// 多行 IF...ELSE...END IF 语句
+		thenStmts := toNodeSliceFromAny(ThenStmts)
+		elseStmts := toNodeSliceFromAny(ElseStmts)
+		return &ast.IfStmt{
+			Condition: Condition.(ast.Node),
+			ThenStmts: thenStmts,
+			ElseStmts: elseStmts,
+		}, nil
+}
+        / "IF" [ ]+ Condition:Expression [ ]+ "THEN" [ ]+ "PRINT" [ ]+ FirstThenArg:PrintArg ThenRest:(((';' / ',') [ ]* PrintArg)*) [ ]+ "ELSE" [ ]+ "PRINT" [ ]+ FirstElseArg:PrintArg ElseRest:(((';' / ',') [ ]* PrintArg)*) {
+		// 单行 IF...THEN PRINT...ELSE PRINT 语句（必须放在单行 IF...THEN PRINT 之前）
+		thenValues := []ast.Node{FirstThenArg.(ast.Node)}
+		thenSeps := []string{}
+		if ThenRest != nil {
+			for _, v := range ThenRest.([]interface{}) {
+				// v 是一个序列 (分隔符, 空格, PrintArg)，PrintArg 是第3个元素（索引2）
+				seq := v.([]interface{})
+				sep := string(seq[0].([]uint8))
+				thenSeps = append(thenSeps, sep)
+				thenValues = append(thenValues, seq[2].(ast.Node))
+			}
+		}
+		elseValues := []ast.Node{FirstElseArg.(ast.Node)}
+		elseSeps := []string{}
+		if ElseRest != nil {
+			for _, v := range ElseRest.([]interface{}) {
+				// v 是一个序列 (分隔符, 空格, PrintArg)，PrintArg 是第3个元素（索引2）
+				seq := v.([]interface{})
+				sep := string(seq[0].([]uint8))
+				elseSeps = append(elseSeps, sep)
+				elseValues = append(elseValues, seq[2].(ast.Node))
+			}
+		}
+		return &ast.IfStmt{
+			Condition: Condition.(ast.Node),
+			ThenStmts: []ast.Node{&ast.PrintStmt{Values: thenValues, Separators: thenSeps}},
+			ElseStmts: []ast.Node{&ast.PrintStmt{Values: elseValues, Separators: elseSeps}},
+		}, nil
+}
+        / "IF" [ ]+ Condition:Expression [ ]+ "THEN" [ ]+ "PRINT" [ ]+ PrintArgs:PrintArgList {
+		// 单行 IF...THEN PRINT 语句
+		result := PrintArgs.([]interface{})
+		values := result[0].([]ast.Node)
+		separators := []string{}
+		if len(result) > 1 {
+			separators = result[1].([]string)
+		}
+		return &ast.IfStmt{
+			Condition: Condition.(ast.Node),
+			ThenStmts: []ast.Node{&ast.PrintStmt{Values: values, Separators: separators}},
+			ElseStmts: []ast.Node{},
+		}, nil
+}
+        / "IF" [ ]+ Condition:Expression [ ]+ "THEN" [ ]+ "LET" [ ]+ Target:Primary [ ]* '=' [ ]* Value:Expression {
+		// 单行 IF...THEN LET 语句（特例）
+		return &ast.IfStmt{
+			Condition: Condition.(ast.Node),
+			ThenStmts: []ast.Node{&ast.Assignment{Target: Target.(ast.Node), Value: Value.(ast.Node)}},
+			ElseStmts: []ast.Node{},
+		}, nil
+}
+
+// ------------------------------------------------------------
+// FOR...NEXT 循环语句
+// ------------------------------------------------------------
+
+ForStmt <- "FOR" [ ]+ Var:Identifier [ ]* '=' [ ]* Start:Expression [ ]+ "TO" [ ]+ End:Expression [ ]+ "STEP" [ ]+ StepExpr:Expression {
+	return &ast.ForStmt{
+		Var:   Var.(string),
+		Start: Start.(ast.Node),
+		End:   End.(ast.Node),
+		Step:  StepExpr.(ast.Node),
+	}, nil
+}
+        / "FOR" [ ]+ Var:Identifier [ ]* '=' [ ]* Start:Expression [ ]+ "TO" [ ]+ End:Expression {
+	return &ast.ForStmt{
+		Var:   Var.(string),
+		Start: Start.(ast.Node),
+		End:   End.(ast.Node),
+		Step:  &ast.Number{Value: 1},
+	}, nil
+}
+
+NextStmt <- "NEXT" [ ]+ Var:Identifier? {
+	varName := ""
+	if Var != nil {
+		varName = Var.(string)
+	}
+	return &ast.NextStmt{Var: varName}, nil
+}
+
+// ------------------------------------------------------------
+// GOTO / GOSUB / RETURN 跳转语句
+// ------------------------------------------------------------
+
+GotoStmt <- "GOTO" [ ]+ Num:LineNumber {
+	return &ast.GotoStmt{LineNumber: Num.(int)}, nil
+}
+
+GosubStmt <- "GOSUB" [ ]+ Num:LineNumber {
+	return &ast.GosubStmt{LineNumber: Num.(int)}, nil
+}
+
+ReturnStmt <- "RETURN" {
+	return &ast.ReturnStmt{}, nil
+}
+
+// ------------------------------------------------------------
+// END / REM / DIM / INPUT 其他语句
+// ------------------------------------------------------------
+
+EndStmt <- "END" {
+	return &ast.EndStmt{}, nil
+}
+
+RemStmt <- "REM" (!'\n' .)* {
+	return &ast.RemStmt{Text: string(c.text)}, nil
+}
+
+SingleQuoteCommentStmt <- "'" (!'\n' .)* {
+	return &ast.RemStmt{Text: string(c.text)}, nil
+}
+
+DimStmt <- "DIM" [ ]+ Name:Identifier '(' Size:Expression ')' {
+	return &ast.DimStmt{Name: Name.(string), Size: Size.(ast.Node)}, nil
+}
+
+InputStmt <- "INPUT" [ ]+ Prompt:StringLiteral [ ]* ',' [ ]* Vars:IdentifierList {
+	return &ast.InputStmt{Prompt: Prompt.(*ast.StringLiteral).Value, Vars: Vars.([]string)}, nil
+}
+            / "INPUT" [ ]+ Prompt:StringLiteral [ ]+ Vars:IdentifierList {
+	return &ast.InputStmt{Prompt: Prompt.(*ast.StringLiteral).Value, Vars: Vars.([]string)}, nil
+}
+            / "INPUT" [ ]+ Vars:IdentifierList {
+	return &ast.InputStmt{Vars: Vars.([]string)}, nil
+}
+
+IdentifierList <- First:Identifier Rest:(',' [ ]* Identifier)* {
+	values := []string{First.(string)}
+	if Rest != nil {
+		for _, v := range Rest.([]interface{}) {
+			seq := v.([]interface{})
+			// seq[0] = ',', seq[1] = [ ]*, seq[2] = Identifier
+			values = append(values, seq[2].(string))
+		}
+	}
+	return values, nil
+}
+
+// ------------------------------------------------------------
+// 表达式（按优先级从低到高）
+// ------------------------------------------------------------
+
+Expression <- LogicalNot
+
+LogicalNot <- "NOT" [ ]* Right:LogicalOr {
+	return &ast.UnaryOp{Op: "NOT", Right: Right.(ast.Node)}, nil
+}
+            / LogicalOr
+
+LogicalOr <- Left:LogicalAnd Rest:(([ ]* "OR" [ ]* Right:LogicalAnd))* {
+	return buildLogicalOpFromAny(Left, Rest, "OR"), nil
+}
+
+LogicalAnd <- Left:Comparison Rest:(([ ]* "AND" [ ]* Right:Comparison))* {
+	return buildLogicalOpFromAny(Left, Rest, "AND"), nil
+}
+
+Comparison <- Left:Additive [ ]* Op:(">=" / "<=" / "<>" / '=' / '>' / '<') [ ]* Right:Additive {
+	return &ast.ComparisonOp{Left: Left.(ast.Node), Op: string(Op.([]byte)), Right: Right.(ast.Node)}, nil
+}
+            / Left:Additive {
+	return Left.(ast.Node), nil
+}
+
+Additive <- Left:Multiplicative Rest:(([ ]* ('+' / '-') [ ]* Right:Multiplicative))* {
+	return buildBinaryOpFromAny(Left, Rest), nil
+}
+
+Multiplicative <- Left:Power Rest:(([ ]* ('*' / '/' / "MOD") [ ]* Right:Power))* {
+	return buildBinaryOpFromAny(Left, Rest), nil
+}
+
+Power <- Left:Unary Rest:(([ ]* '^' [ ]* Right:Unary))* {
+	return buildBinaryOpFromAny(Left, Rest), nil
+}
+
+Unary <- ('+' / '-') operand:Unary {
+	return &ast.UnaryOp{Op: string(c.text), Right: operand.(ast.Node)}, nil
+}
+      / Primary
+
+ExpressionList <- First:Expression Rest:(',' [ ]* Expression)* {
+	values := []ast.Node{First.(ast.Node)}
+	if Rest != nil {
+		for _, v := range Rest.([]interface{}) {
+			pair := v.([]interface{})
+			values = append(values, pair[1].(ast.Node))
+		}
+	}
+	return values, nil
+}
+
+Primary <- Number
+          / id:Identifier '(' index:Expression ')' {
+	// 单个参数：区分数组访问和函数调用
+	idStr := id.(string)
+	if isBuiltinFunction(idStr) {
+		return &ast.FunctionCall{Name: idStr, Args: []ast.Node{index.(ast.Node)}}, nil
+	}
+	return &ast.ArrayAccess{Name: idStr, Index: index.(ast.Node)}, nil
+}
+          / id:Identifier '(' args:ExpressionList ')' {
+	// 多个参数：一定是函数调用（BASIC 中数组只有一个索引）
+	values := args.([]ast.Node)
+	return &ast.FunctionCall{Name: id.(string), Args: values}, nil
+}
+          / id:Identifier '(' ')' {
+	// 无参数：一定是函数调用（如 RND()）
+	return &ast.FunctionCall{Name: id.(string), Args: []ast.Node{}}, nil
+}
+          / id:Identifier {
+	return &ast.Identifier{Name: id.(string)}, nil
+}
+          / StringLiteral
+          / '(' expr:Expression ')' {
+	return expr, nil
+}
+
+// ------------------------------------------------------------
+// 基础词法单元
+// ------------------------------------------------------------
+
+Number <- [0-9]+ ('.' [0-9]+)? ([eE] [+-]? [0-9]+)? {
+	n, _ := strconv.ParseFloat(string(c.text), 64)
+	return &ast.Number{Value: n}, nil
+}
+
+StringLiteral <- '"' Text:[^"]* '"' {
+	s := ""
+	if Text != nil {
+		// Text 是由 * 操作符产生的 []interface{}
+		textSlice := Text.([]interface{})
+		for _, item := range textSlice {
+			if b, ok := item.([]byte); ok {
+				s += string(b)
+			}
+		}
+	}
+	return &ast.StringLiteral{Value: s}, nil
+}
+
+Identifier <- [A-Za-z_][A-Za-z0-9_$]* {
+	return string(c.text), nil
+}
