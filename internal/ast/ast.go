@@ -1,6 +1,9 @@
 package ast
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Node AST 节点接口
 // 所有 AST 节点类型都必须实现此接口，提供字符串表示方法
@@ -92,10 +95,10 @@ type RemStmt struct {
 }
 
 // DimStmt 表示 DIM 数组声明语句
-// 语法: DIM <数组名>(<大小>)
+// 语法: DIM <数组名>(<大小1>[, <大小2>, ...])
 type DimStmt struct {
-	Name string // 数组名
-	Size Node   // 数组大小（表达式）
+	Name string   // 数组名
+	Sizes []Node  // 数组各维度的大小（表达式列表）
 }
 
 // InputStmt 表示 INPUT 输入语句
@@ -150,10 +153,10 @@ type FunctionCall struct {
 }
 
 // ArrayAccess 表示数组访问
-// 语法: <数组名>(<索引表达式>)
+// 语法: <数组名>(<索引1>[, <索引2>, ...])
 type ArrayAccess struct {
-	Name     string // 数组名
-	Index    Node   // 索引表达式
+	Name     string   // 数组名
+	Indices  []Node   // 索引表达式列表
 }
 
 // Number 表示数字字面量
@@ -300,9 +303,13 @@ func (r *RemStmt) String() string {
 }
 
 // String 返回 DIM 数组声明语句的字符串表示
-// 格式: "DIM <数组名>(<大小>)"
+// 格式: "DIM <数组名>(<大小1>[, <大小2>, ...])"
 func (d *DimStmt) String() string {
-	return fmt.Sprintf("DIM %s(%s)", d.Name, d.Size.String())
+	sizes := make([]string, len(d.Sizes))
+	for i, size := range d.Sizes {
+		sizes[i] = size.String()
+	}
+	return fmt.Sprintf("DIM %s(%s)", d.Name, strings.Join(sizes, ", "))
 }
 
 // String 返回 INPUT 输入语句的字符串表示
@@ -366,9 +373,13 @@ func (f *FunctionCall) String() string {
 }
 
 // String 返回数组访问的字符串表示
-// 格式: "<数组名>(<索引>)"
+// 格式: "<数组名>(<索引1>[, <索引2>, ...])"
 func (a *ArrayAccess) String() string {
-	return a.Name + "(" + a.Index.String() + ")"
+	indices := make([]string, len(a.Indices))
+	for i, idx := range a.Indices {
+		indices[i] = idx.String()
+	}
+	return a.Name + "(" + strings.Join(indices, ", ") + ")"
 }
 
 // String 返回数字的字符串表示

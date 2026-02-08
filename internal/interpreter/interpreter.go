@@ -69,14 +69,14 @@ func (v Value) IsTrue() bool {
 // Interpreter BASIC 解释器
 // 负责解析和执行 AST（抽象语法树）
 type Interpreter struct {
-	variables   map[string]Value         // 变量存储表
-	arrays      map[string][]float64     // 数组存储表
-	program     *ast.Program             // 当前加载的程序
-	currentLine int                      // 当前执行到的行索引
-	lineMap     map[int]int             // 行号 -> 程序行索引的映射表
-	returnStack []int                   // GOSUB 返回地址栈
-	forStack    []*ForFrame             // FOR 循环栈
-	nameCache   map[string]string       // 名称规范化缓存（优化）
+	variables   map[string]Value          // 变量存储表
+	arrays      map[string]*ArrayInfo     // 数组存储表
+	program     *ast.Program              // 当前加载的程序
+	currentLine int                       // 当前执行到的行索引
+	lineMap     map[int]int              // 行号 -> 程序行索引的映射表
+	returnStack []int                    // GOSUB 返回地址栈
+	forStack    []*ForFrame              // FOR 循环栈
+	nameCache   map[string]string        // 名称规范化缓存（优化）
 }
 
 // ForFrame 表示 FOR 循环的栈帧
@@ -90,11 +90,51 @@ type ForFrame struct {
 	value     float64 // 循环变量当前值（缓存）
 }
 
+// ArrayInfo 表示数组信息
+// 用于存储多维数组的维度信息和数据
+type ArrayInfo struct {
+	dims    []int      // 各维度的大小
+	data    []float64  // 扁平化存储的数组数据
+	totalSize int      // 总元素数量
+}
+
+// NewArrayInfo 创建一个新的数组
+func NewArrayInfo(dims []int) *ArrayInfo {
+	totalSize := 1
+	for _, d := range dims {
+		totalSize *= d
+	}
+	return &ArrayInfo{
+		dims:      dims,
+		data:      make([]float64, totalSize),
+		totalSize: totalSize,
+	}
+}
+
+// CalculateIndex 计算多维索引的一维位置
+// 将 (i1, i2, ..., in) 转换为扁平化索引
+func (a *ArrayInfo) CalculateIndex(indices []int) int {
+	if len(indices) != len(a.dims) {
+		return -1
+	}
+	index := 0
+	multiplier := 1
+	// 从最后一维开始计算（行优先顺序）
+	for i := len(indices) - 1; i >= 0; i-- {
+		if indices[i] < 0 || indices[i] >= a.dims[i] {
+			return -1 // 索引越界
+		}
+		index += indices[i] * multiplier
+		multiplier *= a.dims[i]
+	}
+	return index
+}
+
 // NewInterpreter 创建一个新的 BASIC 解释器实例
 func NewInterpreter() *Interpreter {
 	return &Interpreter{
 		variables: make(map[string]Value),
-		arrays:    make(map[string][]float64),
+		arrays:    make(map[string]*ArrayInfo),
 		lineMap:   make(map[int]int),
 		nameCache: make(map[string]string), // 优化：初始化名称缓存
 	}
@@ -160,17 +200,22 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 		case *ast.ArrayAccess:
 			// 数组元素赋值 - 使用大写的数组名
 			normalizedName := i.normalizeName(target.Name)
-			index := int(i.evaluateExpr(target.Index).AsNumber())
 			arr, ok := i.arrays[normalizedName]
 			if !ok {
 				fmt.Printf("Error: Array '%s' not declared\n", target.Name)
 				return false
 			}
-			if index < 0 || index >= len(arr) {
-				fmt.Printf("Error: Array index %d out of bounds (0-%d)\n", index, len(arr)-1)
+			// 计算多维索引
+			indices := make([]int, len(target.Indices))
+			for idx, idxExpr := range target.Indices {
+				indices[idx] = int(i.evaluateExpr(idxExpr).AsNumber())
+			}
+			flatIndex := arr.CalculateIndex(indices)
+			if flatIndex < 0 {
+				fmt.Printf("Error: Array index out of bounds\n")
 				return false
 			}
-			arr[index] = value.AsNumber()
+			arr.data[flatIndex] = value.AsNumber()
 		default:
 			fmt.Printf("Error: Invalid assignment target type: %T\n", target)
 		}
@@ -312,16 +357,21 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 		return false
 
 	case *ast.DimStmt:
-		// DIM 数组声明语句：创建数组（使用大写的数组名）
-		size := int(i.evaluateExpr(n.Size).AsNumber())
-		if size < 0 {
-			fmt.Printf("Error: Array size must be non-negative, got %d\n", size)
-			return false
+		// DIM 数组声明语句：创建多维数组（使用大写的数组名）
+		dims := make([]int, len(n.Sizes))
+		for idx, sizeExpr := range n.Sizes {
+			size := int(i.evaluateExpr(sizeExpr).AsNumber())
+			if size < 0 {
+				fmt.Printf("Error: Array dimension %d must be non-negative, got %d\n", idx+1, size)
+				return false
+			}
+			dims[idx] = size
 		}
-		// BASIC 数组索引通常从 0 或 1 开始，这里实现为 0-based
+		// BASIC 数组索引从 0 开始
 		// DIM A(10) 创建 A(0) 到 A(9)，共 10 个元素
+		// DIM B(3, 4) 创建 3x4 的二维数组，共 12 个元素
 		normalizedName := i.normalizeName(n.Name)
-		i.arrays[normalizedName] = make([]float64, size)
+		i.arrays[normalizedName] = NewArrayInfo(dims)
 		return false
 
 	case *ast.InputStmt:
@@ -389,17 +439,22 @@ func (i *Interpreter) evaluateExpr(node ast.Node) Value {
 	case *ast.ArrayAccess:
 		// 数组访问：获取数组元素的值（使用大写的数组名）
 		normalizedName := i.normalizeName(n.Name)
-		index := int(i.evaluateExpr(n.Index).AsNumber())
 		arr, ok := i.arrays[normalizedName]
 		if !ok {
 			fmt.Printf("Error: Array '%s' not declared\n", n.Name)
 			return NumberValue(0)
 		}
-		if index < 0 || index >= len(arr) {
-			fmt.Printf("Error: Array index %d out of bounds (0-%d)\n", index, len(arr)-1)
+		// 计算多维索引
+		indices := make([]int, len(n.Indices))
+		for idx, idxExpr := range n.Indices {
+			indices[idx] = int(i.evaluateExpr(idxExpr).AsNumber())
+		}
+		flatIndex := arr.CalculateIndex(indices)
+		if flatIndex < 0 {
+			fmt.Printf("Error: Array index out of bounds\n")
 			return NumberValue(0)
 		}
-		return NumberValue(arr[index])
+		return NumberValue(arr.data[flatIndex])
 
 	case *ast.BinaryOp:
 		// 二元算术运算：+, -, *, /, ^, MOD

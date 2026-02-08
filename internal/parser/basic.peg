@@ -265,8 +265,8 @@ SingleQuoteCommentStmt <- "'" (!'\n' .)* {
 	return &ast.RemStmt{Text: string(c.text)}, nil
 }
 
-DimStmt <- "DIM" [ ]+ Name:Identifier '(' Size:Expression ')' {
-	return &ast.DimStmt{Name: Name.(string), Size: Size.(ast.Node)}, nil
+DimStmt <- "DIM" [ ]+ Name:Identifier '(' Sizes:ExpressionList ')' {
+	return &ast.DimStmt{Name: Name.(string), Sizes: Sizes.([]ast.Node)}, nil
 }
 
 InputStmt <- "INPUT" [ ]+ Prompt:StringLiteral [ ]* ',' [ ]* Vars:IdentifierList {
@@ -355,18 +355,13 @@ ExpressionList <- First:Expression Rest:(',' [ ]* Expression)* {
 }
 
 Primary <- Number
-          / id:Identifier '(' index:Expression ')' {
-	// 单个参数：区分数组访问和函数调用
+          / id:Identifier '(' args:ExpressionList ')' {
+	// 多个参数：可能是函数调用或多维数组访问
 	idStr := id.(string)
 	if isBuiltinFunction(idStr) {
-		return &ast.FunctionCall{Name: idStr, Args: []ast.Node{index.(ast.Node)}}, nil
+		return &ast.FunctionCall{Name: idStr, Args: args.([]ast.Node)}, nil
 	}
-	return &ast.ArrayAccess{Name: idStr, Index: index.(ast.Node)}, nil
-}
-          / id:Identifier '(' args:ExpressionList ')' {
-	// 多个参数：一定是函数调用（BASIC 中数组只有一个索引）
-	values := args.([]ast.Node)
-	return &ast.FunctionCall{Name: id.(string), Args: values}, nil
+	return &ast.ArrayAccess{Name: idStr, Indices: args.([]ast.Node)}, nil
 }
           / id:Identifier '(' ')' {
 	// 无参数：一定是函数调用（如 RND()）
