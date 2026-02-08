@@ -11,57 +11,59 @@ import (
 )
 
 // Value 表示 BASIC 解释器中的任意值
-// 优化版本：使用 interface{} 直接存储，减少包装开销
-type Value interface{}
+// 支持数字和字符串两种类型
+type Value struct {
+	isNumber bool    // 是否为数字类型
+	isString bool    // 是否为字符串类型
+	number   float64 // 数字值
+	string   string  // 字符串值
+}
 
 // NumberValue 创建一个数字类型的 Value
 func NumberValue(v float64) Value {
-	return v
+	return Value{isNumber: true, number: v}
 }
 
 // StringValue 创建一个字符串类型的 Value
-func StringValueCast(v string) Value {
-	return v
+func StringValue(v string) Value {
+	return Value{isString: true, string: v}
 }
 
-// ValueToString 返回值的字符串表示
-func ValueToString(v Value) string {
-	switch val := v.(type) {
-	case float64:
-		return fmt.Sprintf("%g", val)
-	case string:
-		return val
-	default:
-		return ""
+// String 返回值的字符串表示
+func (v Value) String() string {
+	if v.isNumber {
+		return fmt.Sprintf("%g", v.number)
 	}
+	if v.isString {
+		return v.string
+	}
+	return ""
 }
 
 // AsNumber 将值转换为数字类型返回
 // 如果是数字则直接返回，如果是字符串则尝试解析，否则返回 0
-func AsNumber(v Value) float64 {
-	switch val := v.(type) {
-	case float64:
-		return val
-	case string:
-		f, _ := strconv.ParseFloat(val, 64)
-		return f
-	default:
-		return 0
+func (v Value) AsNumber() float64 {
+	if v.isNumber {
+		return v.number
 	}
+	if v.isString {
+		f, _ := strconv.ParseFloat(v.string, 64)
+		return f
+	}
+	return 0
 }
 
 // IsTrue 判断值是否为真
 // 数字：非零为真，零为假
 // 字符串：非空为真，空字符串为假
-func IsTrue(v Value) bool {
-	switch val := v.(type) {
-	case float64:
-		return val != 0
-	case string:
-		return val != ""
-	default:
-		return false
+func (v Value) IsTrue() bool {
+	if v.isNumber {
+		return v.number != 0
 	}
+	if v.isString {
+		return v.string != ""
+	}
+	return false
 }
 
 // Interpreter BASIC 解释器
@@ -147,7 +149,7 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 		case *ast.ArrayAccess:
 			// 数组元素赋值 - 使用大写的数组名
 			normalizedName := i.normalizeName(target.Name)
-			index := int(i.evaluateExpr(target.Index)AsNumber(v))
+			index := int(i.evaluateExpr(target.Index).AsNumber())
 			arr, ok := i.arrays[normalizedName]
 			if !ok {
 				fmt.Printf("Error: Array '%s' not declared\n", target.Name)
@@ -157,7 +159,7 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 				fmt.Printf("Error: Array index %d out of bounds (0-%d)\n", index, len(arr)-1)
 				return false
 			}
-			arr[index] = valueAsNumber(v)
+			arr[index] = value.AsNumber()
 		default:
 			fmt.Printf("Error: Invalid assignment target type: %T\n", target)
 		}
@@ -177,7 +179,7 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 				// 分号分隔符：不添加空格
 			}
 			v := i.evaluateExpr(val)
-			fmt.Print(vValueToString(v))
+			fmt.Print(v.String())
 		}
 		// 只有在没有末尾分号或逗号时才换行
 		if n.Trailer == "" {
@@ -188,7 +190,7 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 	case *ast.IfStmt:
 		// IF...THEN...ELSE...END IF 条件语句
 		cond := i.evaluateExpr(n.Condition)
-		if condIsTrue(v) {
+		if cond.IsTrue() {
 			// 条件为真，执行 THEN 块
 			for _, s := range n.ThenStmts {
 				i.executeStatement(s)
@@ -203,9 +205,9 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 
 	case *ast.ForStmt:
 		// FOR...NEXT 循环语句
-		startVal := i.evaluateExpr(n.Start)AsNumber(v)
-		endVal := i.evaluateExpr(n.End)AsNumber(v)
-		stepVal := i.evaluateExpr(n.Step)AsNumber(v)
+		startVal := i.evaluateExpr(n.Start).AsNumber()
+		endVal := i.evaluateExpr(n.End).AsNumber()
+		stepVal := i.evaluateExpr(n.Step).AsNumber()
 
 		// 初始化循环变量（使用大写的变量名）
 		normalizedName := i.normalizeName(n.Var)
@@ -228,7 +230,7 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 		}
 
 		frame := i.forStack[len(i.forStack)-1]
-		currentVal := i.variables[frame.varName]AsNumber(v)
+		currentVal := i.variables[frame.varName].AsNumber()
 		newVal := currentVal + frame.stepValue
 		i.variables[frame.varName] = NumberValue(newVal)
 
@@ -293,7 +295,7 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 
 	case *ast.DimStmt:
 		// DIM 数组声明语句：创建数组（使用大写的数组名）
-		size := int(i.evaluateExpr(n.Size)AsNumber(v))
+		size := int(i.evaluateExpr(n.Size).AsNumber())
 		if size < 0 {
 			fmt.Printf("Error: Array size must be non-negative, got %d\n", size)
 			return false
@@ -369,7 +371,7 @@ func (i *Interpreter) evaluateExpr(node ast.Node) Value {
 	case *ast.ArrayAccess:
 		// 数组访问：获取数组元素的值（使用大写的数组名）
 		normalizedName := i.normalizeName(n.Name)
-		index := int(i.evaluateExpr(n.Index)AsNumber(v))
+		index := int(i.evaluateExpr(n.Index).AsNumber())
 		arr, ok := i.arrays[normalizedName]
 		if !ok {
 			fmt.Printf("Error: Array '%s' not declared\n", n.Name)
@@ -383,8 +385,8 @@ func (i *Interpreter) evaluateExpr(node ast.Node) Value {
 
 	case *ast.BinaryOp:
 		// 二元算术运算：+, -, *, /, ^, MOD
-		left := i.evaluateExpr(n.Left)AsNumber(v)
-		right := i.evaluateExpr(n.Right)AsNumber(v)
+		left := i.evaluateExpr(n.Left).AsNumber()
+		right := i.evaluateExpr(n.Right).AsNumber()
 		switch n.Op {
 		case "+":
 			return NumberValue(left + right)
@@ -407,8 +409,8 @@ func (i *Interpreter) evaluateExpr(node ast.Node) Value {
 
 	case *ast.ComparisonOp:
 		// 比较运算：=, <>, >, <, >=, <=
-		left := i.evaluateExpr(n.Left)AsNumber(v)
-		right := i.evaluateExpr(n.Right)AsNumber(v)
+		left := i.evaluateExpr(n.Left).AsNumber()
+		right := i.evaluateExpr(n.Right).AsNumber()
 		var result bool
 		switch n.Op {
 		case "=":
@@ -434,8 +436,8 @@ func (i *Interpreter) evaluateExpr(node ast.Node) Value {
 
 	case *ast.LogicalOp:
 		// 逻辑运算：AND, OR
-		left := i.evaluateExpr(n.Left)IsTrue(v)
-		right := i.evaluateExpr(n.Right)IsTrue(v)
+		left := i.evaluateExpr(n.Left).IsTrue()
+		right := i.evaluateExpr(n.Right).IsTrue()
 		var result bool
 		switch n.Op {
 		case "AND":
@@ -454,14 +456,14 @@ func (i *Interpreter) evaluateExpr(node ast.Node) Value {
 		// 一元运算：+, -, NOT
 		if n.Op == "NOT" {
 			// NOT 是逻辑运算，返回布尔值
-			right := i.evaluateExpr(n.Right)IsTrue(v)
+			right := i.evaluateExpr(n.Right).IsTrue()
 			if !right {
 				return NumberValue(1)
 			}
 			return NumberValue(0)
 		}
 		// + 和 - 是算术运算
-		right := i.evaluateExpr(n.Right)AsNumber(v)
+		right := i.evaluateExpr(n.Right).AsNumber()
 		if n.Op == "+" {
 			return NumberValue(right)
 		}
@@ -485,7 +487,7 @@ func (i *Interpreter) evaluateFunctionCall(node *ast.FunctionCall) Value {
 			fmt.Printf("Error: ABS requires 1 argument, got %d\n", len(node.Args))
 			return NumberValue(0)
 		}
-		value := i.evaluateExpr(node.Args[0])AsNumber(v)
+		value := i.evaluateExpr(node.Args[0]).AsNumber()
 		return NumberValue(math.Abs(value))
 
 	case "SIN":
@@ -494,7 +496,7 @@ func (i *Interpreter) evaluateFunctionCall(node *ast.FunctionCall) Value {
 			fmt.Printf("Error: SIN requires 1 argument, got %d\n", len(node.Args))
 			return NumberValue(0)
 		}
-		value := i.evaluateExpr(node.Args[0])AsNumber(v)
+		value := i.evaluateExpr(node.Args[0]).AsNumber()
 		return NumberValue(math.Sin(value))
 
 	case "COS":
@@ -503,7 +505,7 @@ func (i *Interpreter) evaluateFunctionCall(node *ast.FunctionCall) Value {
 			fmt.Printf("Error: COS requires 1 argument, got %d\n", len(node.Args))
 			return NumberValue(0)
 		}
-		value := i.evaluateExpr(node.Args[0])AsNumber(v)
+		value := i.evaluateExpr(node.Args[0]).AsNumber()
 		return NumberValue(math.Cos(value))
 
 	case "TAN":
@@ -512,7 +514,7 @@ func (i *Interpreter) evaluateFunctionCall(node *ast.FunctionCall) Value {
 			fmt.Printf("Error: TAN requires 1 argument, got %d\n", len(node.Args))
 			return NumberValue(0)
 		}
-		value := i.evaluateExpr(node.Args[0])AsNumber(v)
+		value := i.evaluateExpr(node.Args[0]).AsNumber()
 		return NumberValue(math.Tan(value))
 
 	case "INT":
@@ -521,7 +523,7 @@ func (i *Interpreter) evaluateFunctionCall(node *ast.FunctionCall) Value {
 			fmt.Printf("Error: INT requires 1 argument, got %d\n", len(node.Args))
 			return NumberValue(0)
 		}
-		value := i.evaluateExpr(node.Args[0])AsNumber(v)
+		value := i.evaluateExpr(node.Args[0]).AsNumber()
 		return NumberValue(math.Trunc(value))
 
 	case "SQR":
@@ -530,7 +532,7 @@ func (i *Interpreter) evaluateFunctionCall(node *ast.FunctionCall) Value {
 			fmt.Printf("Error: SQR requires 1 argument, got %d\n", len(node.Args))
 			return NumberValue(0)
 		}
-		value := i.evaluateExpr(node.Args[0])AsNumber(v)
+		value := i.evaluateExpr(node.Args[0]).AsNumber()
 		if value < 0 {
 			fmt.Println("Error: SQR of negative number")
 			return NumberValue(0)
@@ -543,7 +545,7 @@ func (i *Interpreter) evaluateFunctionCall(node *ast.FunctionCall) Value {
 			fmt.Printf("Error: LOG requires 1 argument, got %d\n", len(node.Args))
 			return NumberValue(0)
 		}
-		value := i.evaluateExpr(node.Args[0])AsNumber(v)
+		value := i.evaluateExpr(node.Args[0]).AsNumber()
 		if value <= 0 {
 			fmt.Println("Error: LOG of non-positive number")
 			return NumberValue(0)
@@ -556,7 +558,7 @@ func (i *Interpreter) evaluateFunctionCall(node *ast.FunctionCall) Value {
 			fmt.Printf("Error: EXP requires 1 argument, got %d\n", len(node.Args))
 			return NumberValue(0)
 		}
-		value := i.evaluateExpr(node.Args[0])AsNumber(v)
+		value := i.evaluateExpr(node.Args[0]).AsNumber()
 		return NumberValue(math.Exp(value))
 
 	case "RND":
