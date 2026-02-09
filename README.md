@@ -218,6 +218,8 @@ go build -o zork-basic ./cmd/zork-basic
 | [15_input_advanced.bas](samples/15_input_advanced.bas) | INPUT 高级用法 - 多变量、提示、字符串 |
 | [16_extensions.bas](samples/16_extensions.bas) | 扩展特性演示 |
 | [17_comments.bas](samples/17_comments.bas) | 注释风格 - REM 和单引号注释 |
+| [18_string_test.bas](samples/18_string_test.bas) | 字符串操作 - 连接、比较、字符串函数 |
+| [19_multidim_arrays.bas](samples/19_multidim_arrays.bas) | 多维数组 - 1D、2D、3D 数组和矩阵乘法 |
 | [99_comprehensive.bas](samples/99_comprehensive.bas) | 综合示例 - 所有特性演示 |
 
 ### 示例：乘法表（直角三角形格式）
