@@ -87,6 +87,20 @@ type ReturnStmt struct{}
 // 语法: END
 type EndStmt struct{}
 
+// IfBlockStmt 表示多行 IF 语句的开头
+// 语法: IF <条件> THEN
+type IfBlockStmt struct {
+	Condition Node
+}
+
+// ElseBlockStmt 表示多行 IF 语句的 ELSE 部分
+// 语法: ELSE
+type ElseBlockStmt struct{}
+
+// EndIfStmt 表示多行 IF 语句的结束
+// 语法: END IF
+type EndIfStmt struct{}
+
 // RemStmt 表示 REM 注释语句
 // 语法: REM <注释文本>
 type RemStmt struct {
@@ -285,6 +299,18 @@ func (r *ReturnStmt) String() string {
 // 格式: "END"
 func (e *EndStmt) String() string {
 	return "END"
+}
+
+func (i *IfBlockStmt) String() string {
+	return fmt.Sprintf("IF %s THEN", i.Condition.String())
+}
+
+func (e *ElseBlockStmt) String() string {
+	return "ELSE"
+}
+
+func (e *EndIfStmt) String() string {
+	return "END IF"
 }
 
 // String 返回 REM 注释语句的字符串表示

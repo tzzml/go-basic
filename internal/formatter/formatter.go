@@ -9,16 +9,52 @@ import (
 	"zork-basic/internal/ast"
 )
 
-// FormatLine 格式化单行代码，更新行号引用
-func FormatLine(line *ast.Line, lineNumberMap map[int]int) string {
+// FormatLine 格式化单行代码，更新行号引用并添加缩进
+func FormatLine(line *ast.Line, lineNumberMap map[int]int, indentLevel int) string {
 	var result strings.Builder
 
-	for _, stmt := range line.Statements {
-		result.WriteString(FormatStatement(stmt, lineNumberMap))
-		result.WriteString(" ")
+	// 添加缩进前缀
+	if indentLevel > 0 {
+		result.WriteString(strings.Repeat("  ", indentLevel))
 	}
 
-	return strings.TrimSpace(result.String())
+	for i, stmt := range line.Statements {
+		if i > 0 {
+			result.WriteString(": ")
+		}
+		result.WriteString(FormatStatement(stmt, lineNumberMap))
+	}
+
+	return result.String()
+}
+
+// GetIndentDelta 计算该行对后续代码缩进的影响
+func GetIndentDelta(line *ast.Line) (before int, after int) {
+	beforeDelta := 0
+	afterDelta := 0
+
+	for _, stmt := range line.Statements {
+		switch s := stmt.(type) {
+		case *ast.ForStmt:
+			afterDelta++
+		case *ast.NextStmt:
+			beforeDelta--
+			afterDelta--
+		case *ast.IfBlockStmt:
+			afterDelta++
+		case *ast.ElseBlockStmt:
+			beforeDelta--
+			afterDelta = 0 // Keep the same level for the body
+		case *ast.EndIfStmt:
+			beforeDelta--
+			afterDelta--
+		case *ast.IfStmt:
+			// IfStmt is a single-node multi-line construct.
+			// In our renumbering/formatting context, it stays as is.
+			_ = s
+		}
+	}
+	return beforeDelta, afterDelta
 }
 
 // FormatStatement 格式化单个语句，更新行号引用
@@ -107,6 +143,15 @@ func FormatStatement(stmt ast.Node, lineNumberMap map[int]int) string {
 			return fmt.Sprintf("NEXT %s", s.Var)
 		}
 		return "NEXT"
+
+	case *ast.IfBlockStmt:
+		return fmt.Sprintf("IF %s THEN", s.Condition.String())
+
+	case *ast.ElseBlockStmt:
+		return "ELSE"
+
+	case *ast.EndIfStmt:
+		return "END IF"
 
 	case *ast.ReturnStmt:
 		return "RETURN"

@@ -78,7 +78,7 @@ KW_MOD <- "MOD"i ![A-Za-z0-9_$]
 // 语句
 // ------------------------------------------------------------
 
-Statement <- SingleQuoteCommentStmt / RemStmt / PrintStmt / IfStmt / ForStmt / NextStmt / GotoStmt / GosubStmt / ReturnStmt / EndStmt / DimStmt / InputStmt / Assignment
+Statement <- SingleQuoteCommentStmt / RemStmt / PrintStmt / IfStmt / IfBlockStmt / ElseBlockStmt / EndIfStmt / ForStmt / NextStmt / GotoStmt / GosubStmt / ReturnStmt / EndStmt / DimStmt / InputStmt / Assignment
 
 // NonIfStatement 表示任何非 IF 的语句
 // 用于单行 IF 语句的 THEN 和 ELSE 部分，避免递归匹配
@@ -183,12 +183,11 @@ IfStmt <- KW_IF [ \t\r\n]+ Condition:Expression [ \t\r\n]+ KW_THEN [ \t\r\n]+ KW
 		}, nil
 }
         / KW_IF [ ]+ Condition:Expression [ ]+ KW_THEN [ ]+ KW_PRINT [ ]+ FirstThenArg:PrintArg ThenRest:(((';' / ',') [ ]* PrintArg)*) [ ]+ KW_ELSE [ ]+ KW_PRINT [ ]+ FirstElseArg:PrintArg ElseRest:(((';' / ',') [ ]* PrintArg)*) {
-		// 单行 IF...THEN PRINT...ELSE PRINT 语句（必须放在单行 IF...THEN PRINT 之前）
+		// 单行 IF...THEN PRINT...ELSE PRINT 语句
 		thenValues := []ast.Node{FirstThenArg.(ast.Node)}
 		thenSeps := []string{}
 		if ThenRest != nil {
 			for _, v := range ThenRest.([]interface{}) {
-				// v 是一个序列 (分隔符, 空格, PrintArg)，PrintArg 是第3个元素（索引2）
 				seq := v.([]interface{})
 				sep := string(seq[0].([]uint8))
 				thenSeps = append(thenSeps, sep)
@@ -199,7 +198,6 @@ IfStmt <- KW_IF [ \t\r\n]+ Condition:Expression [ \t\r\n]+ KW_THEN [ \t\r\n]+ KW
 		elseSeps := []string{}
 		if ElseRest != nil {
 			for _, v := range ElseRest.([]interface{}) {
-				// v 是一个序列 (分隔符, 空格, PrintArg)，PrintArg 是第3个元素（索引2）
 				seq := v.([]interface{})
 				sep := string(seq[0].([]uint8))
 				elseSeps = append(elseSeps, sep)
@@ -227,7 +225,7 @@ IfStmt <- KW_IF [ \t\r\n]+ Condition:Expression [ \t\r\n]+ KW_THEN [ \t\r\n]+ KW
 		}, nil
 }
         / KW_IF [ ]+ Condition:Expression [ ]+ KW_THEN [ ]+ ThenStmt:NonIfNonPrintStatement [ ]+ KW_ELSE [ ]+ ElseStmt:NonIfNonPrintStatement {
-		// 单行 IF...THEN...ELSE（通用，支持 GOTO、GOSUB、LET、赋值等非 PRINT 语句）
+		// 单行 IF...THEN...ELSE
 		return &ast.IfStmt{
 			Condition: Condition.(ast.Node),
 			ThenStmts: []ast.Node{ThenStmt.(ast.Node)},
@@ -235,12 +233,24 @@ IfStmt <- KW_IF [ \t\r\n]+ Condition:Expression [ \t\r\n]+ KW_THEN [ \t\r\n]+ KW
 		}, nil
 }
         / KW_IF [ ]+ Condition:Expression [ ]+ KW_THEN [ ]+ ThenStmt:NonIfNonPrintStatement {
-		// 单行 IF...THEN（通用，支持 GOTO、GOSUB、LET、赋值等非 PRINT 语句）
+		// 单行 IF...THEN
 		return &ast.IfStmt{
 			Condition: Condition.(ast.Node),
 			ThenStmts: []ast.Node{ThenStmt.(ast.Node)},
 			ElseStmts: []ast.Node{},
 		}, nil
+}
+
+IfBlockStmt <- KW_IF [ ]+ Condition:Expression [ ]+ KW_THEN {
+		return &ast.IfBlockStmt{Condition: Condition.(ast.Node)}, nil
+}
+
+ElseBlockStmt <- KW_ELSE {
+		return &ast.ElseBlockStmt{}, nil
+}
+
+EndIfStmt <- KW_END [ ]+ KW_IF {
+		return &ast.EndIfStmt{}, nil
 }
 
 // ------------------------------------------------------------

@@ -417,11 +417,30 @@ func cmdFormat(store *CodeStore) bool {
 	// 创建新代码存储
 	newStore := NewCodeStore()
 
-	// 遍历所有语句，更新行号和行号引用
+	// 遍历所有语句，更新行号和行号引用，并计算缩进
+	currentIndent := 0
 	for _, line := range prog.Lines {
 		newNum := lineNumberMap[line.LineNumber]
-		formattedCode := formatter.FormatLine(line, lineNumberMap)
+
+		// 计算当前行开始时的缩进（处理 NEXT 等需要提前缩进的情况）
+		before, after := formatter.GetIndentDelta(line)
+
+		displayIndent := currentIndent
+		if before < 0 {
+			displayIndent += before
+		}
+		if displayIndent < 0 {
+			displayIndent = 0
+		}
+
+		formattedCode := formatter.FormatLine(line, lineNumberMap, displayIndent)
 		newStore.Set(newNum, formattedCode)
+
+		// 更新下一行的缩进
+		currentIndent += after
+		if currentIndent < 0 {
+			currentIndent = 0
+		}
 	}
 
 	// 替换旧存储
