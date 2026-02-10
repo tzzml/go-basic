@@ -133,8 +133,16 @@ func Run(version string, mode string) {
 	store := NewCodeStore()
 	scanner := bufio.NewScanner(os.Stdin)
 
+	nextLine := 10
+	if !store.IsEmpty() {
+		nums := store.GetLineNumbers()
+		if len(nums) > 0 {
+			nextLine = ((nums[len(nums)-1] / 10) + 1) * 10
+		}
+	}
+
 	for {
-		fmt.Printf("\n%s> ", Prompt)
+		fmt.Printf("%d> ", nextLine)
 
 		if !scanner.Scan() {
 			// EOF (Ctrl+D)
@@ -142,24 +150,49 @@ func Run(version string, mode string) {
 			break
 		}
 
-		input := strings.TrimSpace(scanner.Text())
+		rawInput := scanner.Text()
+		trimmedInput := strings.TrimSpace(rawInput)
 
-		// 跳过空行
+		// 如果用户直接输入内容而没有行号，我们需要决定它是命令还是带行号的代码
+		// 如果用户输入 "print 1"，我们应该把它当作 "10 print 1" 吗？
+		// 根据用户要求 "自动给出行号"，如果用户输入为空或非命令，则应补全。
+
+		input := trimmedInput
 		if input == "" {
 			continue
 		}
 
 		// 处理命令
 		if handleCommand(input, store, scanner, mode) {
+			// 处理完命令后，重新计算下一个行号
+			if !store.IsEmpty() {
+				nums := store.GetLineNumbers()
+				if len(nums) > 0 {
+					nextLine = ((nums[len(nums)-1] / 10) + 1) * 10
+				}
+			}
 			continue
 		}
 
-		// 尝试解析为 BASIC 代码行
-		if lineNumber, code, ok := ParseBasicLine(input); ok {
-			store.Set(lineNumber, code)
-			fmt.Printf("Line %d updated\n", lineNumber)
+		// 尝试解析
+		lineNumber, code, isDelete, ok := ParseBasicLine(input)
+		if ok {
+			if isDelete {
+				if store.Delete(lineNumber) {
+					fmt.Printf("Line %d deleted\n", lineNumber)
+				}
+			} else {
+				store.Set(lineNumber, code)
+				fmt.Printf("Line %d updated\n", lineNumber)
+				if lineNumber >= nextLine {
+					nextLine = ((lineNumber / 10) + 1) * 10
+				}
+			}
 		} else {
-			fmt.Println("Error: Invalid input. Type 'HELP' for available commands.")
+			// 如果没有显式行号，自动补全当前建议行号
+			store.Set(nextLine, input)
+			fmt.Printf("Line %d updated\n", nextLine)
+			nextLine += 10
 		}
 	}
 
@@ -323,7 +356,7 @@ func cmdEdit(store *CodeStore, lineNumStr string, scanner *bufio.Scanner) bool {
 			return true
 		}
 
-		if lineNumber, code, ok := ParseBasicLine(newLine); ok {
+		if lineNumber, code, _, ok := ParseBasicLine(newLine); ok {
 			if lineNumber != num {
 				fmt.Printf("Warning: Line number changed from %d to %d\n", num, lineNumber)
 			}
@@ -375,7 +408,7 @@ func cmdLoad(store *CodeStore, filename string) bool {
 			continue
 		}
 
-		if lineNumber, code, ok := ParseBasicLine(line); ok {
+		if lineNumber, code, isDelete, ok := ParseBasicLine(line); ok && !isDelete {
 			store.Set(lineNumber, code)
 			lineCount++
 		}
@@ -451,7 +484,8 @@ func cmdFormat(store *CodeStore) bool {
 }
 
 // ParseBasicLine 解析 BASIC 代码行，提取行号和代码
-func ParseBasicLine(input string) (int, string, bool) {
+// 返回: 行号, 代码内容, 是否是删除操作, 是否成功解析出行号
+func ParseBasicLine(input string) (int, string, bool, bool) {
 	// 提取行号
 	i := 0
 	for i < len(input) && input[i] >= '0' && input[i] <= '9' {
@@ -459,23 +493,24 @@ func ParseBasicLine(input string) (int, string, bool) {
 	}
 
 	if i == 0 {
-		return 0, "", false
+		return 0, "", false, false
 	}
 
 	lineNumber, err := strconv.Atoi(input[:i])
 	if err != nil {
-		return 0, "", false
+		return 0, "", false, false
 	}
 
 	// 提取代码部分（跳过行号后的空格）
 	code := strings.TrimSpace(input[i:])
 	if code == "" {
-		return 0, "", false
+		// 只有行号，没有代码内容，视为删除操作
+		return lineNumber, "", true, true
 	}
 
 	// 注意：PEG 解析器已原生支持大小写不敏感关键字，无需预处理
 
-	return lineNumber, code, true
+	return lineNumber, code, false, true
 }
 
 // ExecuteProgram 执行 BASIC 程序
@@ -515,7 +550,7 @@ func ExecuteProgram(code string, source string, mode string) {
 // printWelcome 打印欢迎信息
 func printWelcome(version string, mode string) {
 	fmt.Println("=====================================")
-	fmt.Println("   zork-basic BASIC Interpreter")
+	fmt.Println("   Zork BASIC Interpreter")
 	fmt.Printf("   Version %s (Mode: %s)\n", version, mode)
 	fmt.Println("=====================================")
 	fmt.Println()
