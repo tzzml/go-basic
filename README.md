@@ -1,4 +1,4 @@
-# Zork Basic
+# Zork Basic (zb)
 
 一个用 Go 语言编写的高性能 BASIC 编程语言解释器。采用双引擎架构，支持直接 AST 解释执行和字节码虚拟机（Bytecode VM）执行。
 
@@ -28,7 +28,7 @@ BASIC 解释器是一个理想的测试项目，因为它具有以下特点：
 
 ## 🚀 核心架构：双引擎驱动
 
-zork-basic 采用灵活的双引擎设计：
+`zb` 采用灵活的双引擎设计：
 
 1. **Bytecode VM (推荐)**: 
    - 流程：`Parse` -> `Compile` -> `Execute`
@@ -42,7 +42,7 @@ zork-basic 采用灵活的双引擎设计：
 ```
 zork-basic/
 ├── cmd/
-│   └── zork-basic/       # 主程序入口
+│   └── zork-basic/       # 主程序入口 (zb)
 ├── internal/
 │   ├── ast/               # 抽象语法树定义
 │   ├── parser/            # PEG 语法定义及解析器
@@ -69,29 +69,47 @@ zork-basic/
 ### 构建
 
 ```bash
-# 获取 pigeon 语法生成器 (仅在修改 basic.peg 时需要)
-go install github.com/mna/pigeon@latest
-
-# 构建
-go build -o zork-basic ./cmd/zork-basic
+# 构建所有程序 (解释器、编译器、虚拟机)
+go build -o zb ./cmd/zork-basic
+go build -o zbc ./cmd/zbc
+go build -o zvm ./cmd/zvm
 ```
 
-### 运行
+### 运行与编译
 
+#### 1. 直接运行
 ```bash
 # 使用高性能 VM 模式执行 (默认)
-./zork-basic -mode vm samples/08_forloop.bas
+./zb -mode vm samples/08_forloop.bas
+```
 
-# 使用 AST 解释模式执行
-./zork-basic -mode ast samples/08_forloop.bas
+#### 2. 编译并脱离源码运行 (AOT) 🆕
+```bash
+# 方案 A: 使用主程序进行编译
+./zb -o program.zbc samples/08_forloop.bas
 
+# 方案 B: 使用专用编译器 (支持反汇编查看)
+./zbc -d samples/08_forloop.bas  # 编译并显示虚拟机指令
+```
+
+#### 3. 查看与运行字节码
+```bash
+# 反汇编查看字节码文件内容
+./zvm -d samples/08_forloop.zbc
+
+# 运行字节码文件
+./zvm samples/08_forloop.zbc
+```
+
+#### 4. 交互模式
+```bash
 # 启动交互式 REPL
-./zork-basic -i
+./zb -i
 ```
 
 ## 性能表现
 
-在 Apple Silicon 芯片上，zork-basic 的表现如下：
+在 Apple Silicon 芯片上，`zb` 的表现如下：
 
 - **VM 模式**: ~40.3M operations/sec (SIN 计算循环)
 - **AST 模式**: ~10.9M operations/sec

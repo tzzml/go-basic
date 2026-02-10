@@ -1,24 +1,25 @@
 #!/bin/bash
-# Build script for zork-basic with size optimizations
+# Build script for zork-basic suite (zb, zbc, zvm)
 
-echo "Building zork-basic with optimizations..."
+echo "Building zork-basic tools..."
 
-# Standard build (with debug symbols)
-echo "1. Standard build..."
-go build -o zork-basic ./cmd/zork-basic
-ls -lh zork-basic
+# Stripped build for better size
+LDFLAGS="-s -w"
 
-# Optimized build (stripped)
+echo "1. Building zb (Interpreter/REPL)..."
+go build -ldflags="$LDFLAGS" -trimpath -o zb ./cmd/zork-basic
+ls -lh zb
+
 echo ""
-echo "2. Optimized build (stripped)..."
-go build -ldflags="-s -w" -trimpath -o zork-basic ./cmd/zork-basic
-ls -lh zork-basic
+echo "2. Building zbc (Bytecode Compiler)..."
+go build -ldflags="$LDFLAGS" -trimpath -o zbc ./cmd/zbc
+ls -lh zbc
 
-# Show size comparison
+echo ""
+echo "3. Building zvm (Bytecode VM Runner)..."
+go build -ldflags="$LDFLAGS" -trimpath -o zvm ./cmd/zvm
+ls -lh zvm
+
 echo ""
 echo "Build complete!"
-echo ""
-echo "To further reduce size (optional):"
-echo "  - Install UPX: brew install upx (macOS) or apt install upx (Linux)"
-echo "  - Compress: upx --best --lzma zork-basic"
-echo "  - This can reduce size to ~600-800KB but adds decompression overhead at startup"
+echo "Binaries: zb, zbc, zvm"
