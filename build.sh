@@ -9,20 +9,10 @@ mkdir -p bin
 # Stripped build for better size
 LDFLAGS="-s -w"
 
-echo "1. Building zb (Interpreter/REPL)..."
-go build -ldflags="$LDFLAGS" -trimpath -o bin/zb ./cmd/zb
+echo "1. Building Zork BASIC (zb)..."
+go build -ldflags="$LDFLAGS" -trimpath -o bin/zb ./cmd
 ls -lh bin/zb
 
 echo ""
-echo "2. Building zbc (Bytecode Compiler)..."
-go build -ldflags="$LDFLAGS" -trimpath -o bin/zbc ./cmd/zbc
-ls -lh bin/zbc
-
-echo ""
-echo "3. Building zvm (Bytecode VM Runner)..."
-go build -ldflags="$LDFLAGS" -trimpath -o bin/zvm ./cmd/zvm
-ls -lh bin/zvm
-
-echo ""
 echo "Build complete!"
-echo "Binaries are located in the 'bin' directory: zb, zbc, zvm"
+echo "The 'zb' binary is located in the 'bin' directory."

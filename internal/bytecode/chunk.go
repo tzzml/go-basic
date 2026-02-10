@@ -214,7 +214,7 @@ func (c *Chunk) disassembleInstruction(out *strings.Builder, offset int) int {
 		return offset + 1
 	}
 
-	fmt.Fprintf(out, "%-16s", def.Name)
+	fmt.Fprintf(out, "%-16s", strings.TrimPrefix(def.Name, "Op"))
 
 	offset++
 

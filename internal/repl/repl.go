@@ -255,6 +255,8 @@ func handleCommand(input string, store *CodeStore, scanner *bufio.Scanner, mode 
 		return cmdFormat(store)
 	case "AUTO":
 		return cmdAuto(store, scanner)
+	case "DISASM", "DS":
+		return cmdDisasm(store)
 	}
 
 	return false
@@ -503,6 +505,30 @@ func cmdAuto(store *CodeStore, scanner *bufio.Scanner) bool {
 	return true
 }
 
+// cmdDisasm DISASM 命令 - 查看当前程序的字节码
+func cmdDisasm(store *CodeStore) bool {
+	if store.IsEmpty() {
+		fmt.Println("Error: No program to disassemble")
+		return true
+	}
+
+	prog, err := store.GetProgram()
+	if err != nil {
+		fmt.Printf("Parse error: %v\n", err)
+		return true
+	}
+
+	comp := compiler.New()
+	chunk, err := comp.Compile(prog)
+	if err != nil {
+		fmt.Printf("Compilation error: %v\n", err)
+		return true
+	}
+
+	fmt.Print(chunk.Disassemble("REPL"))
+	return true
+}
+
 // ParseBasicLine 解析 BASIC 代码行，提取行号和代码
 // 返回: 行号, 代码内容, 是否是删除操作, 是否成功解析出行号
 func ParseBasicLine(input string) (int, string, bool, bool) {
@@ -584,7 +610,8 @@ func printInteractiveHelp() {
 	fmt.Println("  EDIT <n>       - Edit line number n")
 	fmt.Println("  DELETE <n>     - Delete line number n")
 	fmt.Println("  AUTO           - Entering automatic line numbering mode")
-	fmt.Println("  FORMAT, F      - Format program (renumber lines, uppercase keywords)")
+	fmt.Println("  FORMAT, f      - Format program (renumber lines, uppercase keywords)")
+	fmt.Println("  DISASM, ds     - View bytecode disassembly")
 	fmt.Println("  CLEAR          - Clear all program lines")
 	fmt.Println("  NEW            - Start a new program")
 	fmt.Println("  SAVE <file>    - Save program to file")

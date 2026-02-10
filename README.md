@@ -42,13 +42,13 @@ BASIC 解释器是一个理想的测试项目，因为它具有以下特点：
 ```
 zork-basic/
 ├── cmd/
-│   └── zork-basic/       # 主程序入口 (zb)
+│   └── main.go            # 全功能主程序入口 (zb)
 ├── internal/
 │   ├── ast/               # 抽象语法树定义
 │   ├── parser/            # PEG 语法定义及解析器
-│   ├── compiler/          # 字节码编译器 (AST -> Bytecode) 🆕
-│   ├── bytecode/          # 指令集、Chunk、常量池定义 🆕
-│   ├── vm/                # 高性能虚拟执行引擎 🆕
+│   ├── compiler/          # 字节码编译器 (AST -> Bytecode)
+│   ├── bytecode/          # 指令集、Chunk、常量池定义
+│   ├── vm/                # 高性能虚拟执行引擎
 │   ├── interpreter/       # 经典 AST 解释执行引擎
 │   ├── repl/              # 交互式编程环境
 │   └── formatter/         # 代码格式化与重编号
@@ -61,53 +61,52 @@ zork-basic/
 - **完整的 BASIC 语句**: `LET`, `PRINT`, `INPUT`, `IF...THEN...ELSE`, `FOR...NEXT`, `GOTO`, `GOSUB/RETURN`, `DIM`, `END`, `REM` 等。
 - **数据结构**: 支持多维数组、字符串（$ 结尾）、全局变量。
 - **表达式引擎**: 支持算术 (+, -, *, /, ^, MOD)、逻辑 (AND, OR, NOT) 和比较运算。
-- **内置函数**: 完备的数学函数库（ABS, SIN, COS, TAN, SQR...）和字符串函数库（LEN, LEFT$, MID$, INSTR...）。
-- **专业环境**: 具有代码重编号 (FORMAT)、自动大小写规范化、SAVE/LOAD 功能。
+- **内置函数**: 完备的数学函数库（ABS, SIN, COS, TAN, SQR...） and 字符串函数库（LEN, LEFT$, MID$, INSTR...）。
+- **专业环境**: 具有代码重编号与智能缩进 (FORMAT/F)、自动行号 (AUTO)、SAVE/LOAD、直接执行模式。
+- **全能工具**: 单一二进制文件 `zb` 即可完成解释、编译、运行字节码和反汇编。
 
 ## 安装和使用
 
 ### 构建
 
 ```bash
-# 构建所有程序 (解释器、编译器、虚拟机)
+# 构建全功能程序 zb
 ./build.sh
-# 或者手动构建到 bin 目录
-# go build -o bin/zb ./cmd/zb
-# go build -o bin/zbc ./cmd/zbc
-# go build -o bin/zvm ./cmd/zvm
 ```
 
 ### 运行与编译
 
-#### 1. 直接运行
+#### 1. 运行 BASIC 源码
 ```bash
 # 使用高性能 VM 模式执行 (默认)
-./bin/zb -mode vm samples/08_forloop.bas
+./bin/zb samples/08_forloop.bas
+
+# 使用 AST 解释器模式执行
+./bin/zb -mode ast samples/08_forloop.bas
 ```
 
-#### 2. 编译并脱离源码运行 (AOT) 🆕
+#### 2. 编译为字节码
 ```bash
-# 方案 A: 使用主程序进行编译
+# 将源码编译为 .zbc 字节码文件
 ./bin/zb -o program.zbc samples/08_forloop.bas
-
-# 方案 B: 使用专用编译器 (支持反汇编查看)
-./bin/zbc -d samples/08_forloop.bas  # 编译并显示虚拟机指令
 ```
 
-#### 3. 查看与运行字节码
+#### 3. 运行与反汇编字节码
 ```bash
-# 反汇编查看字节码文件内容
-./bin/zvm -d samples/08_forloop.zbc
+# 自动识别并运行字节码文件
+./bin/zb program.zbc
 
-# 运行字节码文件
-./bin/zvm samples/08_forloop.zbc
+# 查看源码或字节码文件的反汇编代码
+./bin/zb -d samples/08_forloop.bas
+./bin/zb -d program.zbc
 ```
 
-#### 4. 交互模式
+#### 4. 交互模式 (REPL)
 ```bash
-# 启动交互式 REPL
+# 启动交互式环境
 ./bin/zb -i
 ```
+在交互模式下，可以使用 `AUTO` 快速输入、`FORMAT` 美化代码、`DISASM` 查看当前程序的字节码。
 
 ## 性能表现
 
