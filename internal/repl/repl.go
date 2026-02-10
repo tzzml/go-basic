@@ -11,9 +11,11 @@ import (
 	"strings"
 
 	"zork-basic/internal/ast"
+	"zork-basic/internal/compiler"
 	"zork-basic/internal/formatter"
 	"zork-basic/internal/interpreter"
 	"zork-basic/internal/parser"
+	"zork-basic/internal/vm"
 )
 
 const (
@@ -125,8 +127,8 @@ func (cs *CodeStore) Count() int {
 }
 
 // Run 启动交互模式
-func Run(version string) {
-	printWelcome(version)
+func Run(version string, mode string) {
+	printWelcome(version, mode)
 
 	store := NewCodeStore()
 	scanner := bufio.NewScanner(os.Stdin)
@@ -148,7 +150,7 @@ func Run(version string) {
 		}
 
 		// 处理命令
-		if handleCommand(input, store, scanner) {
+		if handleCommand(input, store, scanner, mode) {
 			continue
 		}
 
@@ -167,7 +169,7 @@ func Run(version string) {
 }
 
 // handleCommand 处理交互命令
-func handleCommand(input string, store *CodeStore, scanner *bufio.Scanner) bool {
+func handleCommand(input string, store *CodeStore, scanner *bufio.Scanner, mode string) bool {
 	trimmed := strings.TrimSpace(input)
 	upper := strings.ToUpper(trimmed)
 
@@ -181,7 +183,7 @@ func handleCommand(input string, store *CodeStore, scanner *bufio.Scanner) bool 
 	case "LIST", "L":
 		return cmdList(store)
 	case "RUN", "R":
-		return cmdRun(store)
+		return cmdRun(store, mode)
 	case "CLEAR":
 		store.Clear()
 		fmt.Println("Program cleared")
@@ -262,7 +264,7 @@ func cmdList(store *CodeStore) bool {
 }
 
 // cmdRun RUN 命令
-func cmdRun(store *CodeStore) bool {
+func cmdRun(store *CodeStore, mode string) bool {
 	if store.IsEmpty() {
 		fmt.Println("Error: No program to run")
 		return true
@@ -280,8 +282,21 @@ func cmdRun(store *CodeStore) bool {
 	}
 
 	// 执行程序
-	interp := interpreter.NewInterpreter()
-	interp.ExecuteProgram(prog)
+	if mode == "vm" {
+		comp := compiler.New()
+		chunk, err := comp.Compile(prog)
+		if err != nil {
+			fmt.Printf("Compilation error: %v\n", err)
+			return true
+		}
+		vm := vm.New(chunk)
+		if err := vm.Run(); err != nil {
+			fmt.Printf("Runtime error: %v\n", err)
+		}
+	} else {
+		interp := interpreter.NewInterpreter()
+		interp.ExecuteProgram(prog)
+	}
 	fmt.Println("\nProgram complete.")
 	return true
 }
@@ -445,7 +460,7 @@ func ParseBasicLine(input string) (int, string, bool) {
 }
 
 // ExecuteProgram 执行 BASIC 程序
-func ExecuteProgram(code string, source string) {
+func ExecuteProgram(code string, source string, mode string) {
 	// 使用 pigeon 生成的解析器
 	parsedAST, err := parser.Parse(source, []byte(code))
 	if err != nil {
@@ -460,16 +475,29 @@ func ExecuteProgram(code string, source string) {
 	}
 
 	// 执行程序
-	interp := interpreter.NewInterpreter()
-	interp.ExecuteProgram(prog)
+	if mode == "vm" {
+		comp := compiler.New()
+		chunk, err := comp.Compile(prog)
+		if err != nil {
+			fmt.Printf("Compilation error: %v\n", err)
+			return
+		}
+		vm := vm.New(chunk)
+		if err := vm.Run(); err != nil {
+			fmt.Printf("Runtime error: %v\n", err)
+		}
+	} else {
+		interp := interpreter.NewInterpreter()
+		interp.ExecuteProgram(prog)
+	}
 	fmt.Println("\nProgram complete.")
 }
 
 // printWelcome 打印欢迎信息
-func printWelcome(version string) {
+func printWelcome(version string, mode string) {
 	fmt.Println("=====================================")
 	fmt.Println("   zork-basic BASIC Interpreter")
-	fmt.Printf("   Version %s\n", version)
+	fmt.Printf("   Version %s (Mode: %s)\n", version, mode)
 	fmt.Println("=====================================")
 	fmt.Println()
 	fmt.Println("Interactive mode. Type 'HELP' for commands.")

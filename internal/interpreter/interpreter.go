@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"zork-basic/internal/ast"
 )
@@ -67,21 +68,32 @@ func (v Value) IsTrue() bool {
 	return false
 }
 
+// IsNumber 返回是否为数字类型
+func (v Value) IsNumber() bool {
+	return v.isNumber
+}
+
+// IsString 返回是否为字符串类型
+func (v Value) IsString() bool {
+	return v.isString
+}
+
 // Interpreter BASIC 解释器
 // 负责解析和执行 AST（抽象语法树）
 type Interpreter struct {
-	variables   map[string]Value      // 变量存储表
-	arrays      map[string]*ArrayInfo // 数组存储表
-	program     *ast.Program          // 当前加载的程序
-	currentLine int                   // 当前执行到的行索引
-	lineMap     map[int]int           // 行号 -> 程序行索引的映射表
-	returnStack []int                 // GOSUB 返回地址栈
-	forStack    []*ForFrame           // FOR 循环栈
-	indexBuf    []int                 // 数组索引复用缓冲区（优化）
-	nameCache   map[string]string     // 名称规范化缓存（优化）
-	output      io.Writer             // 正常输出（PRINT 语句等）
-	errOutput   io.Writer             // 错误输出
-	input       io.Reader             // 输入源（INPUT 语句）
+	variables    map[string]Value      // 变量存储表
+	arrays       map[string]*ArrayInfo // 数组存储表
+	program      *ast.Program          // 当前加载的程序
+	currentLine  int                   // 当前执行到的行索引
+	lineMap      map[int]int           // 行号 -> 程序行索引的映射表
+	returnStack  []int                 // GOSUB 返回地址栈
+	forStack     []*ForFrame           // FOR 循环栈
+	indexBuf     []int                 // 数组索引复用缓冲区（优化）
+	nameCache    map[string]string     // 名称规范化缓存（优化）
+	forFramePool *sync.Pool            // 循环帧对象池（优化）
+	output       io.Writer             // 正常输出（PRINT 语句等）
+	errOutput    io.Writer             // 错误输出
+	input        io.Reader             // 输入源（INPUT 语句）
 }
 
 // Option 是解释器的配置选项函数
@@ -123,7 +135,7 @@ type ForFrame struct {
 // 用于存储多维数组的维度信息和数据
 type ArrayInfo struct {
 	dims      []int     // 各维度的大小
-	data      []float64 // 扁平化存储的数组数据
+	Data      []float64 // 扁平化存储的数组数据
 	totalSize int       // 总元素数量
 }
 
@@ -135,7 +147,7 @@ func NewArrayInfo(dims []int) *ArrayInfo {
 	}
 	return &ArrayInfo{
 		dims:      dims,
-		data:      make([]float64, totalSize),
+		Data:      make([]float64, totalSize),
 		totalSize: totalSize,
 	}
 }
@@ -168,6 +180,11 @@ func NewInterpreter(opts ...Option) *Interpreter {
 		arrays:    make(map[string]*ArrayInfo),
 		lineMap:   make(map[int]int),
 		nameCache: make(map[string]string),
+		forFramePool: &sync.Pool{
+			New: func() interface{} {
+				return &ForFrame{}
+			},
+		},
 		output:    os.Stdout,
 		errOutput: os.Stderr,
 		input:     os.Stdin,
@@ -254,7 +271,7 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 				fmt.Fprintf(i.errOutput, "Error: Array index out of bounds\n")
 				return false
 			}
-			arr.data[flatIndex] = value.AsNumber()
+			arr.Data[flatIndex] = value.AsNumber()
 		default:
 			fmt.Fprintf(i.errOutput, "Error: Invalid assignment target type: %T\n", target)
 		}
@@ -312,14 +329,16 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 		normalizedName := i.normalizeName(n.Var)
 		i.variables[normalizedName] = NumberValue(startVal)
 
+		// Get frame from pool
+		frame := i.forFramePool.Get().(*ForFrame)
+		frame.varName = normalizedName
+		frame.endValue = endVal
+		frame.stepValue = stepVal
+		frame.lineIdx = i.currentLine
+		frame.value = startVal
+
 		// 将循环帧压入栈中，缓存循环变量值
-		i.forStack = append(i.forStack, &ForFrame{
-			varName:   normalizedName,
-			endValue:  endVal,
-			stepValue: stepVal,
-			lineIdx:   i.currentLine,
-			value:     startVal, // 缓存初始值
-		})
+		i.forStack = append(i.forStack, frame)
 		return false
 
 	case *ast.NextStmt:
@@ -356,6 +375,8 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 			// 将最终值写回 map（保持一致性）
 			i.variables[frame.varName] = NumberValue(newVal)
 			i.forStack = i.forStack[:len(i.forStack)-1]
+			// Release frame back to pool
+			i.forFramePool.Put(frame)
 		}
 		return false
 
@@ -497,7 +518,7 @@ func (i *Interpreter) evaluateExpr(node ast.Node) Value {
 			fmt.Fprintf(i.errOutput, "Error: Array index out of bounds\n")
 			return NumberValue(0)
 		}
-		return NumberValue(arr.data[flatIndex])
+		return NumberValue(arr.Data[flatIndex])
 
 	case *ast.BinaryOp:
 		// 二元算术运算：+, -, *, /, ^, MOD

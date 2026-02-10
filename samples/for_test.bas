@@ -1,0 +1,22 @@
+10 PRINT "=== FOR/NEXT Test ==="
+20 LET SUM = 0
+30 FOR I = 1 TO 10
+40 LET SUM = SUM + I
+50 NEXT I
+60 PRINT "Sum 1..10 =", SUM
+70 PRINT ""
+80 PRINT "=== Nested FOR Test ==="
+90 FOR I = 1 TO 3
+100 FOR J = 1 TO 3
+110 PRINT I; "*"; J; "="; I * J; " ";
+120 NEXT J
+130 PRINT ""
+140 NEXT I
+150 PRINT ""
+160 PRINT "=== STEP Test ==="
+170 FOR I = 10 TO 1 STEP -2
+180 PRINT I; " ";
+190 NEXT I
+200 PRINT ""
+210 PRINT "Done!"
+220 END
