@@ -14,8 +14,7 @@ type Node interface {
 // Program 表示一个完整的 BASIC 程序
 // BASIC 程序由多行组成，每行都有行号
 type Program struct {
-	Lines      []*Line // 带行号的语句行，按行号排序
-	Statements []Node  // 旧版兼容：用于向后兼容
+	Lines []*Line // 带行号的语句行，按行号排序
 }
 
 // Line 表示 BASIC 程序中的一行
@@ -29,8 +28,8 @@ type Line struct {
 // 语法: LET <变量名> = <表达式> 或 <变量名> = <表达式>
 // 也支持数组元素赋值: <数组名>(<索引>) = <表达式>
 type Assignment struct {
-	Target Node   // 赋值目标（Identifier 或 ArrayAccess）
-	Value  Node   // 要赋值的表达式
+	Target Node // 赋值目标（Identifier 或 ArrayAccess）
+	Value  Node // 要赋值的表达式
 }
 
 // PrintStmt 表示 PRINT 输出语句
@@ -46,9 +45,9 @@ type PrintStmt struct {
 // IfStmt 表示 IF...THEN...ELSE...END IF 条件语句
 // 语法: IF <条件> THEN <语句块> [ELSE <语句块>] END IF
 type IfStmt struct {
-	Condition  Node   // 条件表达式（比较或逻辑运算）
-	ThenStmts  []Node // 条件为真时执行的语句块
-	ElseStmts  []Node // 条件为假时执行的语句块（可选）
+	Condition Node   // 条件表达式（比较或逻辑运算）
+	ThenStmts []Node // 条件为真时执行的语句块
+	ElseStmts []Node // 条件为假时执行的语句块（可选）
 }
 
 // ForStmt 表示 FOR...NEXT 循环语句
@@ -97,8 +96,8 @@ type RemStmt struct {
 // DimStmt 表示 DIM 数组声明语句
 // 语法: DIM <数组名>(<大小1>[, <大小2>, ...])
 type DimStmt struct {
-	Name string   // 数组名
-	Sizes []Node  // 数组各维度的大小（表达式列表）
+	Name  string // 数组名
+	Sizes []Node // 数组各维度的大小（表达式列表）
 }
 
 // InputStmt 表示 INPUT 输入语句
@@ -155,8 +154,8 @@ type FunctionCall struct {
 // ArrayAccess 表示数组访问
 // 语法: <数组名>(<索引1>[, <索引2>, ...])
 type ArrayAccess struct {
-	Name     string   // 数组名
-	Indices  []Node   // 索引表达式列表
+	Name    string // 数组名
+	Indices []Node // 索引表达式列表
 }
 
 // Number 表示数字字面量
@@ -174,24 +173,16 @@ type StringLiteral struct {
 // String 返回程序的字符串表示
 // 格式: "Program:\n<行号>: <语句>\n..."
 func (p *Program) String() string {
-	if len(p.Lines) > 0 {
-		result := "Program:\n"
-		for _, line := range p.Lines {
-			result += fmt.Sprintf("%4d: ", line.LineNumber)
-			for i, stmt := range line.Statements {
-				if i > 0 {
-					result += ": "
-				}
-				result += stmt.String()
-			}
-			result += "\n"
-		}
-		return result
-	}
-	// 旧版兼容：使用 Statements 字段
 	result := "Program:\n"
-	for _, stmt := range p.Statements {
-		result += "  " + stmt.String() + "\n"
+	for _, line := range p.Lines {
+		result += fmt.Sprintf("%4d: ", line.LineNumber)
+		for i, stmt := range line.Statements {
+			if i > 0 {
+				result += ": "
+			}
+			result += stmt.String()
+		}
+		result += "\n"
 	}
 	return result
 }

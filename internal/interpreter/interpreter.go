@@ -2,8 +2,9 @@ package interpreter
 
 import (
 	"fmt"
+	"io"
 	"math"
-	"math/rand"
+	"os"
 	"strconv"
 	"strings"
 
@@ -32,7 +33,7 @@ func StringValue(v string) Value {
 // String 返回值的字符串表示
 func (v Value) String() string {
 	if v.isNumber {
-		return fmt.Sprintf("%g", v.number)
+		return strconv.FormatFloat(v.number, 'g', -1, 64)
 	}
 	if v.isString {
 		return v.string
@@ -69,14 +70,42 @@ func (v Value) IsTrue() bool {
 // Interpreter BASIC 解释器
 // 负责解析和执行 AST（抽象语法树）
 type Interpreter struct {
-	variables   map[string]Value          // 变量存储表
-	arrays      map[string]*ArrayInfo     // 数组存储表
-	program     *ast.Program              // 当前加载的程序
-	currentLine int                       // 当前执行到的行索引
-	lineMap     map[int]int              // 行号 -> 程序行索引的映射表
-	returnStack []int                    // GOSUB 返回地址栈
-	forStack    []*ForFrame              // FOR 循环栈
-	nameCache   map[string]string        // 名称规范化缓存（优化）
+	variables   map[string]Value      // 变量存储表
+	arrays      map[string]*ArrayInfo // 数组存储表
+	program     *ast.Program          // 当前加载的程序
+	currentLine int                   // 当前执行到的行索引
+	lineMap     map[int]int           // 行号 -> 程序行索引的映射表
+	returnStack []int                 // GOSUB 返回地址栈
+	forStack    []*ForFrame           // FOR 循环栈
+	indexBuf    []int                 // 数组索引复用缓冲区（优化）
+	nameCache   map[string]string     // 名称规范化缓存（优化）
+	output      io.Writer             // 正常输出（PRINT 语句等）
+	errOutput   io.Writer             // 错误输出
+	input       io.Reader             // 输入源（INPUT 语句）
+}
+
+// Option 是解释器的配置选项函数
+type Option func(*Interpreter)
+
+// WithOutput 设置正常输出目标
+func WithOutput(w io.Writer) Option {
+	return func(i *Interpreter) {
+		i.output = w
+	}
+}
+
+// WithErrOutput 设置错误输出目标
+func WithErrOutput(w io.Writer) Option {
+	return func(i *Interpreter) {
+		i.errOutput = w
+	}
+}
+
+// WithInput 设置输入源
+func WithInput(r io.Reader) Option {
+	return func(i *Interpreter) {
+		i.input = r
+	}
 }
 
 // ForFrame 表示 FOR 循环的栈帧
@@ -93,9 +122,9 @@ type ForFrame struct {
 // ArrayInfo 表示数组信息
 // 用于存储多维数组的维度信息和数据
 type ArrayInfo struct {
-	dims    []int      // 各维度的大小
-	data    []float64  // 扁平化存储的数组数据
-	totalSize int      // 总元素数量
+	dims      []int     // 各维度的大小
+	data      []float64 // 扁平化存储的数组数据
+	totalSize int       // 总元素数量
 }
 
 // NewArrayInfo 创建一个新的数组
@@ -131,13 +160,22 @@ func (a *ArrayInfo) CalculateIndex(indices []int) int {
 }
 
 // NewInterpreter 创建一个新的 BASIC 解释器实例
-func NewInterpreter() *Interpreter {
-	return &Interpreter{
+// 默认输出到 os.Stdout，错误到 os.Stderr，输入从 os.Stdin
+// 可通过 Option 函数自定义
+func NewInterpreter(opts ...Option) *Interpreter {
+	i := &Interpreter{
 		variables: make(map[string]Value),
 		arrays:    make(map[string]*ArrayInfo),
 		lineMap:   make(map[int]int),
-		nameCache: make(map[string]string), // 优化：初始化名称缓存
+		nameCache: make(map[string]string),
+		output:    os.Stdout,
+		errOutput: os.Stderr,
+		input:     os.Stdin,
 	}
+	for _, opt := range opts {
+		opt(i)
+	}
+	return i
 }
 
 // normalizeName 将名称转换为大写，用于统一变量名和函数名
@@ -159,6 +197,7 @@ func (i *Interpreter) normalizeName(name string) string {
 func (i *Interpreter) LoadProgram(program *ast.Program) {
 	i.program = program
 	i.lineMap = make(map[int]int)
+	i.nameCache = make(map[string]string) // 重置名称缓存，避免无限增长
 	for idx, line := range program.Lines {
 		i.lineMap[line.LineNumber] = idx
 	}
@@ -202,22 +241,22 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 			normalizedName := i.normalizeName(target.Name)
 			arr, ok := i.arrays[normalizedName]
 			if !ok {
-				fmt.Printf("Error: Array '%s' not declared\n", target.Name)
+				fmt.Fprintf(i.errOutput, "Error: Array '%s' not declared\n", target.Name)
 				return false
 			}
 			// 计算多维索引
-			indices := make([]int, len(target.Indices))
+			indices := i.getIndexBuf(len(target.Indices))
 			for idx, idxExpr := range target.Indices {
 				indices[idx] = int(i.evaluateExpr(idxExpr).AsNumber())
 			}
 			flatIndex := arr.CalculateIndex(indices)
 			if flatIndex < 0 {
-				fmt.Printf("Error: Array index out of bounds\n")
+				fmt.Fprintf(i.errOutput, "Error: Array index out of bounds\n")
 				return false
 			}
 			arr.data[flatIndex] = value.AsNumber()
 		default:
-			fmt.Printf("Error: Invalid assignment target type: %T\n", target)
+			fmt.Fprintf(i.errOutput, "Error: Invalid assignment target type: %T\n", target)
 		}
 		return false
 
@@ -230,16 +269,16 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 				// 检查分隔符类型
 				if j <= len(n.Separators) && n.Separators[j-1] == "," {
 					// 逗号分隔符：添加空格
-					fmt.Print(" ")
+					fmt.Fprint(i.output, " ")
 				}
 				// 分号分隔符：不添加空格
 			}
 			v := i.evaluateExpr(val)
-			fmt.Print(v.String())
+			fmt.Fprint(i.output, v.String())
 		}
 		// 只有在没有末尾分号或逗号时才换行
 		if n.Trailer == "" {
-			fmt.Println()
+			fmt.Fprintln(i.output)
 		}
 		return false
 
@@ -249,12 +288,16 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 		if cond.IsTrue() {
 			// 条件为真，执行 THEN 块
 			for _, s := range n.ThenStmts {
-				i.executeStatement(s)
+				if i.executeStatement(s) {
+					return true // 传播 GOTO/GOSUB/END/RETURN 的控制流变更
+				}
 			}
 		} else if len(n.ElseStmts) > 0 {
 			// 条件为假，执行 ELSE 块（如果有）
 			for _, s := range n.ElseStmts {
-				i.executeStatement(s)
+				if i.executeStatement(s) {
+					return true // 传播 GOTO/GOSUB/END/RETURN 的控制流变更
+				}
 			}
 		}
 		return false
@@ -282,7 +325,7 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 	case *ast.NextStmt:
 		// NEXT 语句：检查循环条件并决定是否继续循环
 		if len(i.forStack) == 0 {
-			fmt.Println("Error: NEXT without FOR")
+			fmt.Fprintln(i.errOutput, "Error: NEXT without FOR")
 			return false
 		}
 
@@ -321,7 +364,7 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 		if idx, ok := i.lineMap[n.LineNumber]; ok {
 			i.currentLine = idx // 直接设置为目标行索引
 		} else {
-			fmt.Printf("Error: Line %d not found\n", n.LineNumber)
+			fmt.Fprintf(i.errOutput, "Error: Line %d not found\n", n.LineNumber)
 		}
 		return true
 
@@ -332,14 +375,14 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 			i.returnStack = append(i.returnStack, i.currentLine)
 			i.currentLine = idx
 		} else {
-			fmt.Printf("Error: Line %d not found\n", n.LineNumber)
+			fmt.Fprintf(i.errOutput, "Error: Line %d not found\n", n.LineNumber)
 		}
 		return true
 
 	case *ast.ReturnStmt:
 		// RETURN 从子程序返回
 		if len(i.returnStack) == 0 {
-			fmt.Println("Error: RETURN without GOSUB")
+			fmt.Fprintln(i.errOutput, "Error: RETURN without GOSUB")
 			return false
 		}
 		retLine := i.returnStack[len(i.returnStack)-1]
@@ -362,7 +405,7 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 		for idx, sizeExpr := range n.Sizes {
 			size := int(i.evaluateExpr(sizeExpr).AsNumber())
 			if size < 0 {
-				fmt.Printf("Error: Array dimension %d must be non-negative, got %d\n", idx+1, size)
+				fmt.Fprintf(i.errOutput, "Error: Array dimension %d must be non-negative, got %d\n", idx+1, size)
 				return false
 			}
 			dims[idx] = size
@@ -385,13 +428,13 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 		for idx, varName := range n.Vars {
 			// 多个变量时，后续变量显示序号
 			if len(n.Vars) > 1 {
-				fmt.Printf("%s [%d]: ", prompt, idx+1)
+				fmt.Fprintf(i.output, "%s [%d]: ", prompt, idx+1)
 			} else {
-				fmt.Print(prompt)
+				fmt.Fprint(i.output, prompt)
 			}
 
 			var input string
-			fmt.Scanln(&input)
+			fmt.Fscanln(i.input, &input)
 			num, err := strconv.ParseFloat(input, 64)
 			// 使用大写的变量名
 			normalizedName := i.normalizeName(varName)
@@ -406,7 +449,7 @@ func (i *Interpreter) executeStatement(stmt ast.Node) bool {
 		return false
 
 	default:
-		fmt.Printf("Warning: unhandled statement type: %T\n", stmt)
+		fmt.Fprintf(i.errOutput, "Warning: unhandled statement type: %T\n", stmt)
 		return false
 	}
 }
@@ -429,7 +472,7 @@ func (i *Interpreter) evaluateExpr(node ast.Node) Value {
 		if val, ok := i.variables[normalizedName]; ok {
 			return val
 		}
-		fmt.Printf("Error: Undefined variable '%s'\n", n.Name)
+		fmt.Fprintf(i.errOutput, "Error: Undefined variable '%s'\n", n.Name)
 		return NumberValue(0)
 
 	case *ast.FunctionCall:
@@ -441,17 +484,17 @@ func (i *Interpreter) evaluateExpr(node ast.Node) Value {
 		normalizedName := i.normalizeName(n.Name)
 		arr, ok := i.arrays[normalizedName]
 		if !ok {
-			fmt.Printf("Error: Array '%s' not declared\n", n.Name)
+			fmt.Fprintf(i.errOutput, "Error: Array '%s' not declared\n", n.Name)
 			return NumberValue(0)
 		}
 		// 计算多维索引
-		indices := make([]int, len(n.Indices))
+		indices := i.getIndexBuf(len(n.Indices))
 		for idx, idxExpr := range n.Indices {
 			indices[idx] = int(i.evaluateExpr(idxExpr).AsNumber())
 		}
 		flatIndex := arr.CalculateIndex(indices)
 		if flatIndex < 0 {
-			fmt.Printf("Error: Array index out of bounds\n")
+			fmt.Fprintf(i.errOutput, "Error: Array index out of bounds\n")
 			return NumberValue(0)
 		}
 		return NumberValue(arr.data[flatIndex])
@@ -481,12 +524,12 @@ func (i *Interpreter) evaluateExpr(node ast.Node) Value {
 			return NumberValue(left * right)
 		case "/":
 			if right == 0 {
-				fmt.Println("Error: Division by zero")
+				fmt.Fprintln(i.errOutput, "Error: Division by zero")
 				return NumberValue(0)
 			}
 			return NumberValue(left / right)
 		case "^":
-			return NumberValue(pow(left, right))
+			return NumberValue(math.Pow(left, right))
 		case "MOD":
 			return NumberValue(math.Mod(left, right))
 		}
@@ -546,20 +589,25 @@ func (i *Interpreter) evaluateExpr(node ast.Node) Value {
 		return NumberValue(0)
 
 	case *ast.LogicalOp:
-		// 逻辑运算：AND, OR
+		// 逻辑运算：AND, OR（支持短路求值）
 		left := i.evaluateExpr(n.Left).IsTrue()
-		right := i.evaluateExpr(n.Right).IsTrue()
-		var result bool
 		switch n.Op {
 		case "AND":
-			result = left && right
+			if !left {
+				return NumberValue(0) // 短路：左侧为假，跳过右侧
+			}
+			if i.evaluateExpr(n.Right).IsTrue() {
+				return NumberValue(1)
+			}
+			return NumberValue(0)
 		case "OR":
-			result = left || right
-		default:
-			result = false
-		}
-		if result {
-			return NumberValue(1)
+			if left {
+				return NumberValue(1) // 短路：左侧为真，跳过右侧
+			}
+			if i.evaluateExpr(n.Right).IsTrue() {
+				return NumberValue(1)
+			}
+			return NumberValue(0)
 		}
 		return NumberValue(0)
 
@@ -581,275 +629,27 @@ func (i *Interpreter) evaluateExpr(node ast.Node) Value {
 		return NumberValue(-right)
 
 	default:
-		fmt.Printf("Warning: unhandled expression type: %T\n", node)
+		fmt.Fprintf(i.errOutput, "Warning: unhandled expression type: %T\n", node)
 		return NumberValue(0)
 	}
 }
 
 // evaluateFunctionCall 计算函数调用的值
-// 支持内置数学函数：ABS, SIN, COS, TAN, INT, RND, SQR, LOG, EXP
-// 支持内置字符串函数：LEN, LEFT$, RIGHT$, MID$, INSTR, UCASE$, LCASE$
+// 使用函数分发表实现 O(1) 查找（定义在 builtins.go）
 func (i *Interpreter) evaluateFunctionCall(node *ast.FunctionCall) Value {
-	// 使用大写的函数名，使函数名不区分大小写
 	normalizedName := i.normalizeName(node.Name)
-	switch normalizedName {
-	// 字符串函数
-	case "LEN":
-		// 返回字符串长度
-		if len(node.Args) != 1 {
-			fmt.Printf("Error: LEN requires 1 argument, got %d\n", len(node.Args))
-			return NumberValue(0)
-		}
-		value := i.evaluateExpr(node.Args[0])
-		return NumberValue(float64(len(value.String())))
-
-	case "LEFT$":
-		// 返回字符串左边 n 个字符
-		if len(node.Args) != 2 {
-			fmt.Printf("Error: LEFT$ requires 2 arguments, got %d\n", len(node.Args))
-			return StringValue("")
-		}
-		str := i.evaluateExpr(node.Args[0]).String()
-		n := int(i.evaluateExpr(node.Args[1]).AsNumber())
-		if n > len(str) {
-			n = len(str)
-		}
-		if n < 0 {
-			n = 0
-		}
-		return StringValue(str[:n])
-
-	case "RIGHT$":
-		// 返回字符串右边 n 个字符
-		if len(node.Args) != 2 {
-			fmt.Printf("Error: RIGHT$ requires 2 arguments, got %d\n", len(node.Args))
-			return StringValue("")
-		}
-		str := i.evaluateExpr(node.Args[0]).String()
-		n := int(i.evaluateExpr(node.Args[1]).AsNumber())
-		if n > len(str) {
-			n = len(str)
-		}
-		if n < 0 {
-			n = 0
-		}
-		return StringValue(str[len(str)-n:])
-
-	case "MID$":
-		// 返回字符串从位置 start 开始的 n 个字符
-		// MID$(str, start[, n])
-		if len(node.Args) < 2 || len(node.Args) > 3 {
-			fmt.Printf("Error: MID$ requires 2 or 3 arguments, got %d\n", len(node.Args))
-			return StringValue("")
-		}
-		str := i.evaluateExpr(node.Args[0]).String()
-		start := int(i.evaluateExpr(node.Args[1]).AsNumber())
-		// BASIC 中字符串位置从 1 开始
-		if start < 1 {
-			start = 1
-		}
-		// 计算长度参数
-		n := len(str) - start + 1 // 默认到字符串末尾
-		if len(node.Args) == 3 {
-			n = int(i.evaluateExpr(node.Args[2]).AsNumber())
-		}
-		// 转换为 0-based 索引
-		startIdx := start - 1
-		endIdx := startIdx + n
-		if endIdx > len(str) {
-			endIdx = len(str)
-		}
-		if startIdx >= len(str) || startIdx < 0 {
-			return StringValue("")
-		}
-		return StringValue(str[startIdx:endIdx])
-
-	case "INSTR":
-		// 返回子串在字符串中的位置
-		// INSTR([start,] str, substr)
-		if len(node.Args) < 2 || len(node.Args) > 3 {
-			fmt.Printf("Error: INSTR requires 2 or 3 arguments, got %d\n", len(node.Args))
-			return NumberValue(0)
-		}
-		var start int = 1
-		var str, substr string
-		if len(node.Args) == 2 {
-			// INSTR(str, substr)
-			str = i.evaluateExpr(node.Args[0]).String()
-			substr = i.evaluateExpr(node.Args[1]).String()
-		} else {
-			// INSTR(start, str, substr)
-			start = int(i.evaluateExpr(node.Args[0]).AsNumber())
-			str = i.evaluateExpr(node.Args[1]).String()
-			substr = i.evaluateExpr(node.Args[2]).String()
-		}
-		if start < 1 {
-			start = 1
-		}
-		// 转换为 0-based 索引
-		pos := strings.Index(str[start-1:], substr)
-		if pos == -1 {
-			return NumberValue(0) // 未找到返回 0
-		}
-		return NumberValue(float64(start + pos)) // 返回 1-based 位置
-
-	case "UCASE$":
-		// 将字符串转换为大写
-		if len(node.Args) != 1 {
-			fmt.Printf("Error: UCASE$ requires 1 argument, got %d\n", len(node.Args))
-			return StringValue("")
-		}
-		str := i.evaluateExpr(node.Args[0]).String()
-		return StringValue(strings.ToUpper(str))
-
-	case "LCASE$":
-		// 将字符串转换为小写
-		if len(node.Args) != 1 {
-			fmt.Printf("Error: LCASE$ requires 1 argument, got %d\n", len(node.Args))
-			return StringValue("")
-		}
-		str := i.evaluateExpr(node.Args[0]).String()
-		return StringValue(strings.ToLower(str))
-
-	case "SPACE$":
-		// 返回 n 个空格的字符串
-		if len(node.Args) != 1 {
-			fmt.Printf("Error: SPACE$ requires 1 argument, got %d\n", len(node.Args))
-			return StringValue("")
-		}
-		n := int(i.evaluateExpr(node.Args[0]).AsNumber())
-		if n < 0 {
-			n = 0
-		}
-		return StringValue(strings.Repeat(" ", n))
-
-	case "CHR$":
-		// 将 ASCII 码转换为字符
-		if len(node.Args) != 1 {
-			fmt.Printf("Error: CHR$ requires 1 argument, got %d\n", len(node.Args))
-			return StringValue("")
-		}
-		code := int(i.evaluateExpr(node.Args[0]).AsNumber())
-		if code < 0 || code > 255 {
-			fmt.Printf("Error: CHR$ argument must be between 0 and 255, got %d\n", code)
-			return StringValue("")
-		}
-		return StringValue(string(rune(code)))
-
-	case "ASC":
-		// 返回字符的 ASCII 码
-		if len(node.Args) != 1 {
-			fmt.Printf("Error: ASC requires 1 argument, got %d\n", len(node.Args))
-			return NumberValue(0)
-		}
-		str := i.evaluateExpr(node.Args[0]).String()
-		if len(str) == 0 {
-			fmt.Println("Error: ASC argument is an empty string")
-			return NumberValue(0)
-		}
-		return NumberValue(float64(str[0]))
-
-	// 数学函数
-	case "ABS":
-		// 绝对值
-		if len(node.Args) != 1 {
-			fmt.Printf("Error: ABS requires 1 argument, got %d\n", len(node.Args))
-			return NumberValue(0)
-		}
-		value := i.evaluateExpr(node.Args[0]).AsNumber()
-		return NumberValue(math.Abs(value))
-
-	case "SIN":
-		// 正弦（弧度）
-		if len(node.Args) != 1 {
-			fmt.Printf("Error: SIN requires 1 argument, got %d\n", len(node.Args))
-			return NumberValue(0)
-		}
-		value := i.evaluateExpr(node.Args[0]).AsNumber()
-		return NumberValue(math.Sin(value))
-
-	case "COS":
-		// 余弦（弧度）
-		if len(node.Args) != 1 {
-			fmt.Printf("Error: COS requires 1 argument, got %d\n", len(node.Args))
-			return NumberValue(0)
-		}
-		value := i.evaluateExpr(node.Args[0]).AsNumber()
-		return NumberValue(math.Cos(value))
-
-	case "TAN":
-		// 正切（弧度）
-		if len(node.Args) != 1 {
-			fmt.Printf("Error: TAN requires 1 argument, got %d\n", len(node.Args))
-			return NumberValue(0)
-		}
-		value := i.evaluateExpr(node.Args[0]).AsNumber()
-		return NumberValue(math.Tan(value))
-
-	case "INT":
-		// 取整
-		if len(node.Args) != 1 {
-			fmt.Printf("Error: INT requires 1 argument, got %d\n", len(node.Args))
-			return NumberValue(0)
-		}
-		value := i.evaluateExpr(node.Args[0]).AsNumber()
-		return NumberValue(math.Trunc(value))
-
-	case "SQR":
-		// 平方根
-		if len(node.Args) != 1 {
-			fmt.Printf("Error: SQR requires 1 argument, got %d\n", len(node.Args))
-			return NumberValue(0)
-		}
-		value := i.evaluateExpr(node.Args[0]).AsNumber()
-		if value < 0 {
-			fmt.Println("Error: SQR of negative number")
-			return NumberValue(0)
-		}
-		return NumberValue(math.Sqrt(value))
-
-	case "LOG":
-		// 自然对数
-		if len(node.Args) != 1 {
-			fmt.Printf("Error: LOG requires 1 argument, got %d\n", len(node.Args))
-			return NumberValue(0)
-		}
-		value := i.evaluateExpr(node.Args[0]).AsNumber()
-		if value <= 0 {
-			fmt.Println("Error: LOG of non-positive number")
-			return NumberValue(0)
-		}
-		return NumberValue(math.Log(value))
-
-	case "EXP":
-		// e 的 x 次方
-		if len(node.Args) != 1 {
-			fmt.Printf("Error: EXP requires 1 argument, got %d\n", len(node.Args))
-			return NumberValue(0)
-		}
-		value := i.evaluateExpr(node.Args[0]).AsNumber()
-		return NumberValue(math.Exp(value))
-
-	case "RND":
-		// 随机数（0 到 1 之间）
-		if len(node.Args) != 0 {
-			fmt.Printf("Error: RND requires 0 arguments, got %d\n", len(node.Args))
-			return NumberValue(0)
-		}
-		return NumberValue(rand.Float64())
-
-	default:
-		fmt.Printf("Error: Unknown function '%s'\n", node.Name)
-		return NumberValue(0)
+	if fn, ok := builtinFuncs[normalizedName]; ok {
+		return fn(i, node)
 	}
+	fmt.Fprintf(i.errOutput, "Error: Unknown function '%s'\n", node.Name)
+	return NumberValue(0)
 }
 
-// pow 计算 x 的 y 次方
-// BASIC 中的幂运算符
-func pow(x, y float64) float64 {
-	result := 1.0
-	for i := 0; i < int(y); i++ {
-		result *= x
+// getIndexBuf 获取可复用的索引缓冲区，避免每次数组访问分配新切片
+func (i *Interpreter) getIndexBuf(size int) []int {
+	if cap(i.indexBuf) >= size {
+		return i.indexBuf[:size]
 	}
-	return result
+	i.indexBuf = make([]int, size)
+	return i.indexBuf
 }

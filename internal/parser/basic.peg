@@ -44,9 +44,35 @@ LineNumber <- [0-9]+ {
 	return n, nil
 }
 
-EndOfLine <- [ \t]* '\n'
+EndOfLine <- [ \t]* '\r'? '\n'
 
 EOF <- !.
+
+// ------------------------------------------------------------
+// 词边界检查：确保关键字不会匹配标识符的前缀
+//   例如 "END" 不会匹配 "ENDING" 中的 "END"
+// ------------------------------------------------------------
+
+KW_END <- "END"i ![A-Za-z0-9_$]
+KW_IF <- "IF"i ![A-Za-z0-9_$]
+KW_THEN <- "THEN"i ![A-Za-z0-9_$]
+KW_ELSE <- "ELSE"i ![A-Za-z0-9_$]
+KW_PRINT <- "PRINT"i ![A-Za-z0-9_$]
+KW_FOR <- "FOR"i ![A-Za-z0-9_$]
+KW_TO <- "TO"i ![A-Za-z0-9_$]
+KW_STEP <- "STEP"i ![A-Za-z0-9_$]
+KW_NEXT <- "NEXT"i ![A-Za-z0-9_$]
+KW_GOTO <- "GOTO"i ![A-Za-z0-9_$]
+KW_GOSUB <- "GOSUB"i ![A-Za-z0-9_$]
+KW_RETURN <- "RETURN"i ![A-Za-z0-9_$]
+KW_LET <- "LET"i ![A-Za-z0-9_$]
+KW_REM <- "REM"i ![A-Za-z0-9_$]
+KW_DIM <- "DIM"i ![A-Za-z0-9_$]
+KW_INPUT <- "INPUT"i ![A-Za-z0-9_$]
+KW_NOT <- "NOT"i ![A-Za-z0-9_$]
+KW_AND <- "AND"i ![A-Za-z0-9_$]
+KW_OR <- "OR"i ![A-Za-z0-9_$]
+KW_MOD <- "MOD"i ![A-Za-z0-9_$]
 
 // ------------------------------------------------------------
 // 语句
@@ -58,9 +84,13 @@ Statement <- SingleQuoteCommentStmt / RemStmt / PrintStmt / IfStmt / ForStmt / N
 // 用于单行 IF 语句的 THEN 和 ELSE 部分，避免递归匹配
 NonIfStatement <- RemStmt / NonEmptyPrintStmt / ForStmt / NextStmt / GotoStmt / GosubStmt / ReturnStmt / EndStmt / DimStmt / InputStmt / Assignment
 
+// NonIfNonPrintStatement 表示除 IF 和 PRINT 之外的语句
+// 用于单行 IF 中非 PRINT 语句的匹配，避免 PRINT 贪婪消费 ELSE 关键字
+NonIfNonPrintStatement <- SingleQuoteCommentStmt / RemStmt / ForStmt / NextStmt / GotoStmt / GosubStmt / ReturnStmt / EndStmt / DimStmt / InputStmt / Assignment
+
 // NonEmptyPrintStmt 表示必须有参数的 PRINT 语句
 // 用于单行 IF 语句中，确保解析器不会只匹配 "PRINT" 而留下参数
-NonEmptyPrintStmt <- "PRINT" [ ]+ Args:PrintArgList {
+NonEmptyPrintStmt <- KW_PRINT [ ]+ Args:PrintArgList {
 	result := Args.([]interface{})
 	values := result[0].([]ast.Node)
 	separators := []string{}
@@ -74,7 +104,7 @@ NonEmptyPrintStmt <- "PRINT" [ ]+ Args:PrintArgList {
 // 赋值语句
 // ------------------------------------------------------------
 
-Assignment <- "LET" [ ]+ Target:Primary [ ]* '=' [ ]* Value:Expression {
+Assignment <- KW_LET [ ]+ Target:Primary [ ]* '=' [ ]* Value:Expression {
 	return &ast.Assignment{Target: Target.(ast.Node), Value: Value.(ast.Node)}, nil
 }
             / Target:Primary [ ]* '=' [ ]* Value:Expression {
@@ -85,7 +115,7 @@ Assignment <- "LET" [ ]+ Target:Primary [ ]* '=' [ ]* Value:Expression {
 // PRINT 输出语句
 // ------------------------------------------------------------
 
-PrintStmt <- "PRINT" [ ]* Args:PrintArgList? Trailer:(',' / ';')? {
+PrintStmt <- KW_PRINT [ ]* Args:PrintArgList? Trailer:(',' / ';')? {
 	values := []ast.Node{}
 	separators := []string{}
 	if Args != nil {
@@ -117,14 +147,15 @@ PrintArgList <- First:PrintArg Rest:((',' / ';') [ ]* PrintArg)* {
 	return []interface{}{values, separators}, nil
 }
 
+// PrintArg 表示 PRINT 语句的单个参数
+// 注意：StringLiteral 已通过 Expression -> Primary -> StringLiteral 路径匹配，无需重复
 PrintArg <- Expression
-          / StringLiteral
 
 // ------------------------------------------------------------
 // IF...THEN...ELSE...END IF 条件语句
 // ------------------------------------------------------------
 
-IfStmt <- "IF" [ \t\r\n]+ Condition:Expression [ \t\r\n]+ "THEN" [ \t\r\n]+ "END" [ \t\r\n]+ "IF" {
+IfStmt <- KW_IF [ \t\r\n]+ Condition:Expression [ \t\r\n]+ KW_THEN [ \t\r\n]+ KW_END [ \t\r\n]+ KW_IF {
 		// 多行空 IF 语句
 		return &ast.IfStmt{
 			Condition: Condition.(ast.Node),
@@ -132,7 +163,7 @@ IfStmt <- "IF" [ \t\r\n]+ Condition:Expression [ \t\r\n]+ "THEN" [ \t\r\n]+ "END
 			ElseStmts: []ast.Node{},
 		}, nil
 }
-        / "IF" [ \t\r\n]+ Condition:Expression [ \t\r\n]+ "THEN" [ \t\r\n]+ ThenStmts:Statement+ [ \t\r\n]+ "END" [ \t\r\n]+ "IF" {
+        / KW_IF [ \t\r\n]+ Condition:Expression [ \t\r\n]+ KW_THEN [ \t\r\n]+ ThenStmts:Statement+ [ \t\r\n]+ KW_END [ \t\r\n]+ KW_IF {
 		// 多行 IF...END IF 语句（无 ELSE）
 		thenStmts := toNodeSliceFromAny(ThenStmts)
 		return &ast.IfStmt{
@@ -141,7 +172,7 @@ IfStmt <- "IF" [ \t\r\n]+ Condition:Expression [ \t\r\n]+ "THEN" [ \t\r\n]+ "END
 			ElseStmts: []ast.Node{},
 		}, nil
 }
-        / "IF" [ \t\r\n]+ Condition:Expression [ \t\r\n]+ "THEN" [ \t\r\n]+ ThenStmts:Statement+ [ \t\r\n]+ "ELSE" [ \t\r\n]+ ElseStmts:Statement+ [ \t\r\n]+ "END" [ \t\r\n]+ "IF" {
+        / KW_IF [ \t\r\n]+ Condition:Expression [ \t\r\n]+ KW_THEN [ \t\r\n]+ ThenStmts:Statement+ [ \t\r\n]+ KW_ELSE [ \t\r\n]+ ElseStmts:Statement+ [ \t\r\n]+ KW_END [ \t\r\n]+ KW_IF {
 		// 多行 IF...ELSE...END IF 语句
 		thenStmts := toNodeSliceFromAny(ThenStmts)
 		elseStmts := toNodeSliceFromAny(ElseStmts)
@@ -151,7 +182,7 @@ IfStmt <- "IF" [ \t\r\n]+ Condition:Expression [ \t\r\n]+ "THEN" [ \t\r\n]+ "END
 			ElseStmts: elseStmts,
 		}, nil
 }
-        / "IF" [ ]+ Condition:Expression [ ]+ "THEN" [ ]+ "PRINT" [ ]+ FirstThenArg:PrintArg ThenRest:(((';' / ',') [ ]* PrintArg)*) [ ]+ "ELSE" [ ]+ "PRINT" [ ]+ FirstElseArg:PrintArg ElseRest:(((';' / ',') [ ]* PrintArg)*) {
+        / KW_IF [ ]+ Condition:Expression [ ]+ KW_THEN [ ]+ KW_PRINT [ ]+ FirstThenArg:PrintArg ThenRest:(((';' / ',') [ ]* PrintArg)*) [ ]+ KW_ELSE [ ]+ KW_PRINT [ ]+ FirstElseArg:PrintArg ElseRest:(((';' / ',') [ ]* PrintArg)*) {
 		// 单行 IF...THEN PRINT...ELSE PRINT 语句（必须放在单行 IF...THEN PRINT 之前）
 		thenValues := []ast.Node{FirstThenArg.(ast.Node)}
 		thenSeps := []string{}
@@ -181,7 +212,7 @@ IfStmt <- "IF" [ \t\r\n]+ Condition:Expression [ \t\r\n]+ "THEN" [ \t\r\n]+ "END
 			ElseStmts: []ast.Node{&ast.PrintStmt{Values: elseValues, Separators: elseSeps}},
 		}, nil
 }
-        / "IF" [ ]+ Condition:Expression [ ]+ "THEN" [ ]+ "PRINT" [ ]+ PrintArgs:PrintArgList {
+        / KW_IF [ ]+ Condition:Expression [ ]+ KW_THEN [ ]+ KW_PRINT [ ]+ PrintArgs:PrintArgList {
 		// 单行 IF...THEN PRINT 语句
 		result := PrintArgs.([]interface{})
 		values := result[0].([]ast.Node)
@@ -195,11 +226,19 @@ IfStmt <- "IF" [ \t\r\n]+ Condition:Expression [ \t\r\n]+ "THEN" [ \t\r\n]+ "END
 			ElseStmts: []ast.Node{},
 		}, nil
 }
-        / "IF" [ ]+ Condition:Expression [ ]+ "THEN" [ ]+ "LET" [ ]+ Target:Primary [ ]* '=' [ ]* Value:Expression {
-		// 单行 IF...THEN LET 语句（特例）
+        / KW_IF [ ]+ Condition:Expression [ ]+ KW_THEN [ ]+ ThenStmt:NonIfNonPrintStatement [ ]+ KW_ELSE [ ]+ ElseStmt:NonIfNonPrintStatement {
+		// 单行 IF...THEN...ELSE（通用，支持 GOTO、GOSUB、LET、赋值等非 PRINT 语句）
 		return &ast.IfStmt{
 			Condition: Condition.(ast.Node),
-			ThenStmts: []ast.Node{&ast.Assignment{Target: Target.(ast.Node), Value: Value.(ast.Node)}},
+			ThenStmts: []ast.Node{ThenStmt.(ast.Node)},
+			ElseStmts: []ast.Node{ElseStmt.(ast.Node)},
+		}, nil
+}
+        / KW_IF [ ]+ Condition:Expression [ ]+ KW_THEN [ ]+ ThenStmt:NonIfNonPrintStatement {
+		// 单行 IF...THEN（通用，支持 GOTO、GOSUB、LET、赋值等非 PRINT 语句）
+		return &ast.IfStmt{
+			Condition: Condition.(ast.Node),
+			ThenStmts: []ast.Node{ThenStmt.(ast.Node)},
 			ElseStmts: []ast.Node{},
 		}, nil
 }
@@ -208,7 +247,7 @@ IfStmt <- "IF" [ \t\r\n]+ Condition:Expression [ \t\r\n]+ "THEN" [ \t\r\n]+ "END
 // FOR...NEXT 循环语句
 // ------------------------------------------------------------
 
-ForStmt <- "FOR" [ ]+ Var:Identifier [ ]* '=' [ ]* Start:Expression [ ]+ "TO" [ ]+ End:Expression [ ]+ "STEP" [ ]+ StepExpr:Expression {
+ForStmt <- KW_FOR [ ]+ Var:Identifier [ ]* '=' [ ]* Start:Expression [ ]+ KW_TO [ ]+ End:Expression [ ]+ KW_STEP [ ]+ StepExpr:Expression {
 	return &ast.ForStmt{
 		Var:   Var.(string),
 		Start: Start.(ast.Node),
@@ -216,7 +255,7 @@ ForStmt <- "FOR" [ ]+ Var:Identifier [ ]* '=' [ ]* Start:Expression [ ]+ "TO" [ 
 		Step:  StepExpr.(ast.Node),
 	}, nil
 }
-        / "FOR" [ ]+ Var:Identifier [ ]* '=' [ ]* Start:Expression [ ]+ "TO" [ ]+ End:Expression {
+        / KW_FOR [ ]+ Var:Identifier [ ]* '=' [ ]* Start:Expression [ ]+ KW_TO [ ]+ End:Expression {
 	return &ast.ForStmt{
 		Var:   Var.(string),
 		Start: Start.(ast.Node),
@@ -225,7 +264,7 @@ ForStmt <- "FOR" [ ]+ Var:Identifier [ ]* '=' [ ]* Start:Expression [ ]+ "TO" [ 
 	}, nil
 }
 
-NextStmt <- "NEXT" [ ]+ Var:Identifier? {
+NextStmt <- KW_NEXT [ ]+ Var:Identifier? {
 	varName := ""
 	if Var != nil {
 		varName = Var.(string)
@@ -237,15 +276,15 @@ NextStmt <- "NEXT" [ ]+ Var:Identifier? {
 // GOTO / GOSUB / RETURN 跳转语句
 // ------------------------------------------------------------
 
-GotoStmt <- "GOTO" [ ]+ Num:LineNumber {
+GotoStmt <- KW_GOTO [ ]+ Num:LineNumber {
 	return &ast.GotoStmt{LineNumber: Num.(int)}, nil
 }
 
-GosubStmt <- "GOSUB" [ ]+ Num:LineNumber {
+GosubStmt <- KW_GOSUB [ ]+ Num:LineNumber {
 	return &ast.GosubStmt{LineNumber: Num.(int)}, nil
 }
 
-ReturnStmt <- "RETURN" {
+ReturnStmt <- KW_RETURN {
 	return &ast.ReturnStmt{}, nil
 }
 
@@ -253,11 +292,11 @@ ReturnStmt <- "RETURN" {
 // END / REM / DIM / INPUT 其他语句
 // ------------------------------------------------------------
 
-EndStmt <- "END" {
+EndStmt <- KW_END {
 	return &ast.EndStmt{}, nil
 }
 
-RemStmt <- "REM" (!'\n' .)* {
+RemStmt <- KW_REM (!'\n' .)* {
 	return &ast.RemStmt{Text: string(c.text)}, nil
 }
 
@@ -265,17 +304,17 @@ SingleQuoteCommentStmt <- "'" (!'\n' .)* {
 	return &ast.RemStmt{Text: string(c.text)}, nil
 }
 
-DimStmt <- "DIM" [ ]+ Name:Identifier '(' Sizes:ExpressionList ')' {
+DimStmt <- KW_DIM [ ]+ Name:Identifier '(' Sizes:ExpressionList ')' {
 	return &ast.DimStmt{Name: Name.(string), Sizes: Sizes.([]ast.Node)}, nil
 }
 
-InputStmt <- "INPUT" [ ]+ Prompt:StringLiteral [ ]* ',' [ ]* Vars:IdentifierList {
+InputStmt <- KW_INPUT [ ]+ Prompt:StringLiteral [ ]* ',' [ ]* Vars:IdentifierList {
 	return &ast.InputStmt{Prompt: Prompt.(*ast.StringLiteral).Value, Vars: Vars.([]string)}, nil
 }
-            / "INPUT" [ ]+ Prompt:StringLiteral [ ]+ Vars:IdentifierList {
+            / KW_INPUT [ ]+ Prompt:StringLiteral [ ]+ Vars:IdentifierList {
 	return &ast.InputStmt{Prompt: Prompt.(*ast.StringLiteral).Value, Vars: Vars.([]string)}, nil
 }
-            / "INPUT" [ ]+ Vars:IdentifierList {
+            / KW_INPUT [ ]+ Vars:IdentifierList {
 	return &ast.InputStmt{Vars: Vars.([]string)}, nil
 }
 
@@ -297,16 +336,16 @@ IdentifierList <- First:Identifier Rest:(',' [ ]* Identifier)* {
 
 Expression <- LogicalNot
 
-LogicalNot <- "NOT" [ ]* Right:LogicalOr {
+LogicalNot <- KW_NOT [ ]* Right:LogicalOr {
 	return &ast.UnaryOp{Op: "NOT", Right: Right.(ast.Node)}, nil
 }
             / LogicalOr
 
-LogicalOr <- Left:LogicalAnd Rest:(([ ]* "OR" [ ]* Right:LogicalAnd))* {
+LogicalOr <- Left:LogicalAnd Rest:(([ ]* KW_OR [ ]* Right:LogicalAnd))* {
 	return buildLogicalOpFromAny(Left, Rest, "OR"), nil
 }
 
-LogicalAnd <- Left:Comparison Rest:(([ ]* "AND" [ ]* Right:Comparison))* {
+LogicalAnd <- Left:Comparison Rest:(([ ]* KW_AND [ ]* Right:Comparison))* {
 	return buildLogicalOpFromAny(Left, Rest, "AND"), nil
 }
 
@@ -321,16 +360,18 @@ Additive <- Left:Multiplicative Rest:(([ ]* ('+' / '-') [ ]* Right:Multiplicativ
 	return buildBinaryOpFromAny(Left, Rest), nil
 }
 
-Multiplicative <- Left:Power Rest:(([ ]* ('*' / '/' / "MOD") [ ]* Right:Power))* {
+Multiplicative <- Left:Power Rest:(([ ]* ('*' / '/' / KW_MOD) [ ]* Right:Power))* {
 	return buildBinaryOpFromAny(Left, Rest), nil
 }
 
-Power <- Left:Unary Rest:(([ ]* '^' [ ]* Right:Unary))* {
-	return buildBinaryOpFromAny(Left, Rest), nil
+// Power 使用右递归实现右结合：2^3^2 = 2^(3^2) = 512
+Power <- Left:Unary [ ]* '^' [ ]* Right:Power {
+	return &ast.BinaryOp{Left: Left.(ast.Node), Op: "^", Right: Right.(ast.Node)}, nil
 }
+      / Unary
 
-Unary <- ('+' / '-') operand:Unary {
-	return &ast.UnaryOp{Op: string(c.text), Right: operand.(ast.Node)}, nil
+Unary <- op:('+' / '-') operand:Unary {
+	return &ast.UnaryOp{Op: string(op.([]byte)), Right: operand.(ast.Node)}, nil
 }
       / Primary
 
