@@ -218,11 +218,28 @@ func (c *Chunk) disassembleInstruction(out *strings.Builder, offset int) int {
 
 	offset++
 
-	for _, width := range def.OperandWidths {
+	for i, width := range def.OperandWidths {
 		switch width {
 		case 2:
 			val := binary.BigEndian.Uint16(c.Code[offset:])
 			fmt.Fprintf(out, "%d ", val)
+
+			// Special handling for instructions that reference pools
+			if op == OpConstant && i == 0 {
+				if int(val) < len(c.Constants) {
+					constVal := c.Constants[val]
+					if constVal.IsString() {
+						fmt.Fprintf(out, "(\"%s\") ", constVal.String())
+					} else {
+						fmt.Fprintf(out, "(%s) ", constVal.String())
+					}
+				}
+			} else if op == OpCallBuiltin && i == 0 {
+				if int(val) < len(BuiltinNames) {
+					fmt.Fprintf(out, "(%s) ", BuiltinNames[val])
+				}
+			}
+
 			offset += 2
 		case 1:
 			val := c.Code[offset]
