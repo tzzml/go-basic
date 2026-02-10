@@ -20,7 +20,7 @@ import (
 
 const (
 	// Prompt 交互模式提示符
-	Prompt = "READY"
+	Prompt = "READY>"
 )
 
 // CodeStore 代码存储：行号 -> 代码内容
@@ -133,16 +133,8 @@ func Run(version string, mode string) {
 	store := NewCodeStore()
 	scanner := bufio.NewScanner(os.Stdin)
 
-	nextLine := 10
-	if !store.IsEmpty() {
-		nums := store.GetLineNumbers()
-		if len(nums) > 0 {
-			nextLine = ((nums[len(nums)-1] / 10) + 1) * 10
-		}
-	}
-
 	for {
-		fmt.Printf("%d> ", nextLine)
+		fmt.Printf("%s ", Prompt)
 
 		if !scanner.Scan() {
 			// EOF (Ctrl+D)
@@ -153,10 +145,6 @@ func Run(version string, mode string) {
 		rawInput := scanner.Text()
 		trimmedInput := strings.TrimSpace(rawInput)
 
-		// 如果用户直接输入内容而没有行号，我们需要决定它是命令还是带行号的代码
-		// 如果用户输入 "print 1"，我们应该把它当作 "10 print 1" 吗？
-		// 根据用户要求 "自动给出行号"，如果用户输入为空或非命令，则应补全。
-
 		input := trimmedInput
 		if input == "" {
 			continue
@@ -164,13 +152,6 @@ func Run(version string, mode string) {
 
 		// 处理命令
 		if handleCommand(input, store, scanner, mode) {
-			// 处理完命令后，重新计算下一个行号
-			if !store.IsEmpty() {
-				nums := store.GetLineNumbers()
-				if len(nums) > 0 {
-					nextLine = ((nums[len(nums)-1] / 10) + 1) * 10
-				}
-			}
 			continue
 		}
 
@@ -184,15 +165,10 @@ func Run(version string, mode string) {
 			} else {
 				store.Set(lineNumber, code)
 				fmt.Printf("Line %d updated\n", lineNumber)
-				if lineNumber >= nextLine {
-					nextLine = ((lineNumber / 10) + 1) * 10
-				}
 			}
 		} else {
-			// 如果没有显式行号，自动补全当前建议行号
-			store.Set(nextLine, input)
-			fmt.Printf("Line %d updated\n", nextLine)
-			nextLine += 10
+			// 直接模式：没有行号，赋予临时行号 0 并立即执行
+			ExecuteProgram("0 "+input+"\n", "direct", mode)
 		}
 	}
 
@@ -277,6 +253,8 @@ func handleCommand(input string, store *CodeStore, scanner *bufio.Scanner, mode 
 		return true
 	case "FORMAT", "F":
 		return cmdFormat(store)
+	case "AUTO":
+		return cmdAuto(store, scanner)
 	}
 
 	return false
@@ -483,6 +461,48 @@ func cmdFormat(store *CodeStore) bool {
 	return true
 }
 
+// cmdAuto AUTO 命令 - 自动编号模式
+func cmdAuto(store *CodeStore, scanner *bufio.Scanner) bool {
+	nextLine := 10
+	if !store.IsEmpty() {
+		nums := store.GetLineNumbers()
+		if len(nums) > 0 {
+			nextLine = ((nums[len(nums)-1] / 10) + 1) * 10
+		}
+	}
+
+	fmt.Println("Entering AUTO mode. Press Enter on an empty line to exit.")
+	for {
+		fmt.Printf("%d ", nextLine)
+		if !scanner.Scan() {
+			break
+		}
+
+		input := strings.TrimSpace(scanner.Text())
+		if input == "" {
+			break
+		}
+
+		// 如果用户在 AUTO 模式输入了带行号的，以用户为准，否则补全行号
+		ln, code, isDelete, ok := ParseBasicLine(input)
+		if ok {
+			if isDelete {
+				store.Delete(ln)
+			} else {
+				store.Set(ln, code)
+				if ln >= nextLine {
+					nextLine = ((ln / 10) + 1) * 10
+				}
+			}
+		} else {
+			store.Set(nextLine, input)
+			nextLine += 10
+		}
+	}
+	fmt.Println("Exited AUTO mode.")
+	return true
+}
+
 // ParseBasicLine 解析 BASIC 代码行，提取行号和代码
 // 返回: 行号, 代码内容, 是否是删除操作, 是否成功解析出行号
 func ParseBasicLine(input string) (int, string, bool, bool) {
@@ -561,11 +581,9 @@ func printWelcome(version string, mode string) {
 // printInteractiveHelp 打印交互模式帮助
 func printInteractiveHelp() {
 	fmt.Println("\nAvailable Commands:")
-	fmt.Println("  BASIC Code     - Enter BASIC statements (e.g., '10 PRINT X')")
-	fmt.Println("  LIST, L        - List all program lines")
-	fmt.Println("  RUN, R         - Execute the program")
 	fmt.Println("  EDIT <n>       - Edit line number n")
 	fmt.Println("  DELETE <n>     - Delete line number n")
+	fmt.Println("  AUTO           - Entering automatic line numbering mode")
 	fmt.Println("  FORMAT, F      - Format program (renumber lines, uppercase keywords)")
 	fmt.Println("  CLEAR          - Clear all program lines")
 	fmt.Println("  NEW            - Start a new program")
@@ -576,8 +594,8 @@ func printInteractiveHelp() {
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  10 PRINT \"Hello World\"")
-	fmt.Println("  20 X = 10")
-	fmt.Println("  RUN")
+	fmt.Println("  PRINT 1 + 2    - Direct mode (executes immediately)")
+	fmt.Println("  AUTO           - Start entry with auto-line numbers")
 	fmt.Println("  LIST")
-	fmt.Println("  FORMAT")
+	fmt.Println("  RUN")
 }
