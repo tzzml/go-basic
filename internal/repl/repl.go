@@ -257,6 +257,8 @@ func handleCommand(input string, store *CodeStore, scanner *bufio.Scanner, mode 
 		return cmdAuto(store, scanner)
 	case "DISASM", "DS":
 		return cmdDisasm(store)
+	case "AST":
+		return cmdAST(store)
 	}
 
 	return false
@@ -529,6 +531,132 @@ func cmdDisasm(store *CodeStore) bool {
 	return true
 }
 
+// cmdAST AST 命令 - 查看当前程序的抽象语法树结构
+func cmdAST(store *CodeStore) bool {
+	if store.IsEmpty() {
+		fmt.Println("Error: No program to inspect")
+		return true
+	}
+
+	prog, err := store.GetProgram()
+	if err != nil {
+		fmt.Printf("Parse error: %v\n", err)
+		return true
+	}
+
+	fmt.Println("== Abstract Syntax Tree ==")
+	for _, line := range prog.Lines {
+		fmt.Printf("[Line %d]\n", line.LineNumber)
+		for _, stmt := range line.Statements {
+			dumpNode(stmt, 1)
+		}
+	}
+	return true
+}
+
+func dumpNode(node ast.Node, indent int) {
+	prefix := strings.Repeat("  ", indent)
+	if node == nil {
+		fmt.Printf("%s<nil>\n", prefix)
+		return
+	}
+
+	switch n := node.(type) {
+	case *ast.Assignment:
+		fmt.Printf("%sAssignment\n", prefix)
+		fmt.Printf("%s  Target: ", prefix)
+		fmt.Printf("%s\n", n.Target.String()) // Use String() for simple leaf-like parts
+		fmt.Printf("%s  Value:\n", prefix)
+		dumpNode(n.Value, indent+2)
+	case *ast.PrintStmt:
+		fmt.Printf("%sPrintStmt (Trailer: %q)\n", prefix, n.Trailer)
+		for i, v := range n.Values {
+			sep := ""
+			if i < len(n.Separators) {
+				sep = n.Separators[i]
+			}
+			fmt.Printf("%s  Value (Sep: %q):\n", prefix, sep)
+			dumpNode(v, indent+2)
+		}
+	case *ast.IfStmt:
+		fmt.Printf("%sIfStmt\n", prefix)
+		fmt.Printf("%s  Condition:\n", prefix)
+		dumpNode(n.Condition, indent+2)
+		fmt.Printf("%s  Then:\n", prefix)
+		for _, s := range n.ThenStmts {
+			dumpNode(s, indent+2)
+		}
+		if len(n.ElseStmts) > 0 {
+			fmt.Printf("%s  Else:\n", prefix)
+			for _, s := range n.ElseStmts {
+				dumpNode(s, indent+2)
+			}
+		}
+	case *ast.ForStmt:
+		fmt.Printf("%sForStmt (Var: %s)\n", prefix, n.Var)
+		fmt.Printf("%s  Start:\n", prefix)
+		dumpNode(n.Start, indent+2)
+		fmt.Printf("%s  End:\n", prefix)
+		dumpNode(n.End, indent+2)
+		if n.Step != nil {
+			fmt.Printf("%s  Step:\n", prefix)
+			dumpNode(n.Step, indent+2)
+		}
+	case *ast.NextStmt:
+		fmt.Printf("%sNextStmt (Var: %q)\n", prefix, n.Var)
+	case *ast.GotoStmt:
+		fmt.Printf("%sGotoStmt (Line: %d)\n", prefix, n.LineNumber)
+	case *ast.GosubStmt:
+		fmt.Printf("%sGosubStmt (Line: %d)\n", prefix, n.LineNumber)
+	case *ast.ReturnStmt:
+		fmt.Printf("%sReturnStmt\n", prefix)
+	case *ast.EndStmt:
+		fmt.Printf("%sEndStmt\n", prefix)
+	case *ast.RemStmt:
+		fmt.Printf("%sRemStmt (%s)\n", prefix, n.Text)
+	case *ast.DimStmt:
+		fmt.Printf("%sDimStmt (Name: %s)\n", prefix, n.Name)
+		for _, sz := range n.Sizes {
+			dumpNode(sz, indent+2)
+		}
+	case *ast.InputStmt:
+		fmt.Printf("%sInputStmt (Prompt: %q, Vars: %v)\n", prefix, n.Prompt, n.Vars)
+	case *ast.BinaryOp:
+		fmt.Printf("%sBinaryOp (%s)\n", prefix, n.Op)
+		dumpNode(n.Left, indent+1)
+		dumpNode(n.Right, indent+1)
+	case *ast.ComparisonOp:
+		fmt.Printf("%sComparisonOp (%s)\n", prefix, n.Op)
+		dumpNode(n.Left, indent+1)
+		dumpNode(n.Right, indent+1)
+	case *ast.LogicalOp:
+		fmt.Printf("%sLogicalOp (%s)\n", prefix, n.Op)
+		dumpNode(n.Left, indent+1)
+		dumpNode(n.Right, indent+1)
+	case *ast.UnaryOp:
+		fmt.Printf("%sUnaryOp (%s)\n", prefix, n.Op)
+		dumpNode(n.Right, indent+1)
+	case *ast.FunctionCall:
+		fmt.Printf("%sFunctionCall (Name: %s)\n", prefix, n.Name)
+		for _, arg := range n.Args {
+			dumpNode(arg, indent+2)
+		}
+	case *ast.ArrayAccess:
+		fmt.Printf("%sArrayAccess (Name: %s)\n", prefix, n.Name)
+		for _, idx := range n.Indices {
+			dumpNode(idx, indent+2)
+		}
+	case *ast.Number:
+		fmt.Printf("%sNumber (%g)\n", prefix, n.Value)
+	case *ast.StringLiteral:
+		fmt.Printf("%sStringLiteral (%q)\n", prefix, n.Value)
+	case *ast.Identifier:
+		fmt.Printf("%sIdentifier (%s)\n", prefix, n.Name)
+	default:
+		fmt.Printf("%sUnknown node: %T (%s)\n", prefix, n, n.String())
+	}
+}
+
 // ParseBasicLine 解析 BASIC 代码行，提取行号和代码
 // 返回: 行号, 代码内容, 是否是删除操作, 是否成功解析出行号
 func ParseBasicLine(input string) (int, string, bool, bool) {
@@ -612,6 +740,7 @@ func printInteractiveHelp() {
 	fmt.Println("  AUTO           - Entering automatic line numbering mode")
 	fmt.Println("  FORMAT, f      - Format program (renumber lines, uppercase keywords)")
 	fmt.Println("  DISASM, ds     - View bytecode disassembly")
+	fmt.Println("  AST            - View abstract syntax tree")
 	fmt.Println("  CLEAR          - Clear all program lines")
 	fmt.Println("  NEW            - Start a new program")
 	fmt.Println("  SAVE <file>    - Save program to file")

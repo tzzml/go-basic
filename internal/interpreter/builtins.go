@@ -39,6 +39,9 @@ func init() {
 		"SPACE$": (*Interpreter).builtinSPACE,
 		"CHR$":   (*Interpreter).builtinCHR,
 		"ASC":    (*Interpreter).builtinASC,
+		// 常量支持
+		"PI":    (*Interpreter).builtinPI,
+		"EULER": (*Interpreter).builtinEULER,
 	}
 }
 
@@ -230,4 +233,22 @@ func (i *Interpreter) builtinASC(node *ast.FunctionCall) Value {
 		return NumberValue(0)
 	}
 	return NumberValue(float64(str[0]))
+}
+
+// builtinPI 返回 π 值
+func (i *Interpreter) builtinPI(node *ast.FunctionCall) Value {
+	if len(node.Args) != 0 {
+		fmt.Fprintf(i.errOutput, "Error: PI requires 0 arguments, got %d\n", len(node.Args))
+		return NumberValue(0)
+	}
+	return NumberValue(math.Pi)
+}
+
+// builtinEULER 返回自然常数 e 值
+func (i *Interpreter) builtinEULER(node *ast.FunctionCall) Value {
+	if len(node.Args) != 0 {
+		fmt.Fprintf(i.errOutput, "Error: EULER requires 0 arguments, got %d\n", len(node.Args))
+		return NumberValue(0)
+	}
+	return NumberValue(math.E)
 }

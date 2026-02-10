@@ -27,6 +27,8 @@ var BuiltinNames = []string{
 	"SPACE$",
 	"CHR$",
 	"ASC",
+	"PI",
+	"EULER",
 }
 
 var builtinMap map[string]int

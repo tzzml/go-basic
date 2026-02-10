@@ -29,6 +29,9 @@ var builtinFunctions = map[string]bool{
 	"SPACE$": true,
 	"CHR$":   true,
 	"ASC":    true,
+	// 常量
+	"PI":    true,
+	"EULER": true,
 }
 
 // isBuiltinFunction 检查标识符是否是内置函数

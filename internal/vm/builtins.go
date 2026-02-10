@@ -31,6 +31,8 @@ var builtinImpls = []BuiltinFunc{
 	builtinSpace, // SPACE$
 	builtinChr,   // CHR$
 	builtinAsc,   // ASC
+	builtinPi,    // PI
+	builtinEuler, // E (EULER)
 }
 
 func builtinAbs(vm *VM, args []interpreter.Value) (interpreter.Value, error) {
@@ -237,4 +239,18 @@ func builtinAsc(vm *VM, args []interpreter.Value) (interpreter.Value, error) {
 		return interpreter.NumberValue(0), fmt.Errorf("ASC argument is an empty string")
 	}
 	return interpreter.NumberValue(float64(str[0])), nil
+}
+
+func builtinPi(vm *VM, args []interpreter.Value) (interpreter.Value, error) {
+	if len(args) != 0 {
+		return interpreter.NumberValue(0), fmt.Errorf("PI requires 0 arguments")
+	}
+	return interpreter.NumberValue(math.Pi), nil
+}
+
+func builtinEuler(vm *VM, args []interpreter.Value) (interpreter.Value, error) {
+	if len(args) != 0 {
+		return interpreter.NumberValue(0), fmt.Errorf("EULER requires 0 arguments")
+	}
+	return interpreter.NumberValue(math.E), nil
 }
