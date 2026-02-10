@@ -70,9 +70,11 @@ zork-basic/
 
 ```bash
 # 构建所有程序 (解释器、编译器、虚拟机)
-go build -o zb ./cmd/zork-basic
-go build -o zbc ./cmd/zbc
-go build -o zvm ./cmd/zvm
+./build.sh
+# 或者手动构建到 bin 目录
+# go build -o bin/zb ./cmd/zb
+# go build -o bin/zbc ./cmd/zbc
+# go build -o bin/zvm ./cmd/zvm
 ```
 
 ### 运行与编译
@@ -80,31 +82,31 @@ go build -o zvm ./cmd/zvm
 #### 1. 直接运行
 ```bash
 # 使用高性能 VM 模式执行 (默认)
-./zb -mode vm samples/08_forloop.bas
+./bin/zb -mode vm samples/08_forloop.bas
 ```
 
 #### 2. 编译并脱离源码运行 (AOT) 🆕
 ```bash
 # 方案 A: 使用主程序进行编译
-./zb -o program.zbc samples/08_forloop.bas
+./bin/zb -o program.zbc samples/08_forloop.bas
 
 # 方案 B: 使用专用编译器 (支持反汇编查看)
-./zbc -d samples/08_forloop.bas  # 编译并显示虚拟机指令
+./bin/zbc -d samples/08_forloop.bas  # 编译并显示虚拟机指令
 ```
 
 #### 3. 查看与运行字节码
 ```bash
 # 反汇编查看字节码文件内容
-./zvm -d samples/08_forloop.zbc
+./bin/zvm -d samples/08_forloop.zbc
 
 # 运行字节码文件
-./zvm samples/08_forloop.zbc
+./bin/zvm samples/08_forloop.zbc
 ```
 
 #### 4. 交互模式
 ```bash
 # 启动交互式 REPL
-./zb -i
+./bin/zb -i
 ```
 
 ## 性能表现
