@@ -1,4 +1,4 @@
-# Zork Basic (zb)
+# Basic Language Writing By Go
 
 一个用 Go 语言编写的高性能 BASIC 编程语言解释器。采用双引擎架构，支持直接 AST 解释执行和字节码虚拟机（Bytecode VM）执行。
 
